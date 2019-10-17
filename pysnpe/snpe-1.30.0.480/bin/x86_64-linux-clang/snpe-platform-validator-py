@@ -1,0 +1,277 @@
+#!/usr/bin/env python
+# =============================================================================
+#
+# Copyright (c) 2018-2019 Qualcomm Technologies, Inc.
+# All Rights Reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+# =============================================================================
+
+# This helper python script makes it easier to run the binary executable on device
+# by pushing all of the necessary files, setting up the environment, running the
+# executable and gathering results.
+
+import argparse
+import os
+import re
+import sys
+from subprocess import check_output
+
+
+def format_output(cmd_output):
+    """
+    Separate lines in output into a list and strip each line.
+    :param cmd_output: str
+    :return: []
+    """
+    # explicitly decode output for Python3 because it is stored in format 'bytes'
+    if sys.version_info[0] == 3:
+        cmd_output=cmd_output.decode('utf-8')
+    stripped_out = []
+    if cmd_output is not None and len(cmd_output) > 0:
+        stripped_out = [line.strip() for line in cmd_output.split('\n') if line.strip()]
+    return stripped_out
+
+
+class Adb:
+    def __init__(self, device="", hostname="localhost"):
+        self.device_id=device
+        self._hostname = 'localhost' if hostname is None else hostname
+
+    def shell(self, cmd):
+        """
+        Runs a BLOCKING adb command on target and raises exception
+        when an error is encountered
+        """
+        try:
+            output = format_output(check_output("adb -H %s -s %s shell \"%s\"" % (self._hostname, self.device_id, cmd), shell=True))
+            return output, 0
+        except Exception as e:
+            return format_output(e.output), 1
+
+    def push(self, source, destination):
+        """
+        Runs a BLOCKING adb push command on target and raises exception
+        when an error is encountered
+        """
+        try:
+            output = format_output(check_output("adb -H %s -s %s push %s %s" % (self._hostname, self.device_id, source, destination), shell=True))
+            return output, 0
+        except Exception as e:
+            return format_output(e.output), 1
+
+    def pull(self, source, destination):
+        """
+        Runs a BLOCKING adb pull command on target and raises exception
+        when an error is encountered
+        """
+        try:
+            output = format_output(check_output("adb -H %s -s %s pull %s %s" % (self._hostname, self.device_id, source, destination), shell=True))
+            return output, 0
+        except Exception as e:
+            return format_output(e.output), 1
+
+    def get_devices(self):
+        out = format_output(check_output("adb -H %s devices" % self._hostname, shell=True))
+        devices = []
+        for line in out:
+            match_obj = re.match("^([a-zA-Z0-9]+)\s+device", line, re.M)
+            if match_obj:
+                devices.append(match_obj.group(1))
+        return devices
+
+
+def platform_validator():
+    parser = argparse.ArgumentParser(description='Helper script to set up the environment for and launch the snpe-platform-validator executable.')
+    parser.add_argument('--runtime', dest='runtime'
+                        , help='Specify the runtime to validate. <RUNTIME> : gpu, dsp, aip, all'
+                        , required=True)
+    parser.add_argument('--buildVariant', dest='buildVariant', default="arm-android-clang6.0"
+                        , help='Specify the build variant (e.g: arm-android-clang6.0, aarch64-android-clang6.0) to be validated.'
+                        , required=False)
+    parser.add_argument('--directory', dest='directory'
+                        , help='Path to the root of the unpacked SDK directory containing the executable and library files.'
+                        , required=True)
+    parser.add_argument('--testRuntime', dest='test_runtime', action='store_true'
+                        , help='Run diagnostic tests on the specified runtime.'
+                        , required=False)
+    parser.add_argument('--deviceId', dest='device_id'
+                        , help='The serial number of the device to use. If not available, the first in a list of queried devices will be used for validation.'
+                        , required=False)
+    parser.add_argument('--coreVersion', dest='runtime_version', action='store_true'
+                        , help='Query the runtime core descriptor. ', required=False)
+    parser.add_argument('--libVersion', dest='lib_version', action='store_true'
+                        , help='Query the runtime core library API.', required=False)
+    parser.add_argument('--targetPath', dest='location', default="/data/local/tmp/platformValidator"
+                        , help='The path to the location on device from which to run the platform validator.'
+                               ' NOTE that this directory will be deleted before proceeding with validation.', required=False)
+    parser.add_argument('--remoteHost', dest='remote_host', default='localhost'
+                        , help='Run on remote host through remote adb server', required=False)
+    parser.add_argument('--debug', dest='debug', action='store_true'
+                        , help='Turn on verbose logging.', required=False)
+
+    # Parse the arguments and set the variables
+    args = parser.parse_args()
+    device_path = args.location
+    buildVariant = args.buildVariant
+    artifacts_dir = args.directory
+    runtime = args.runtime.lower()
+    test_runtime = args.test_runtime
+    runtime_version = args.runtime_version
+    lib_version = args.lib_version
+    hostname = args.remote_host
+    debug = args.debug
+    device_id = args.device_id
+    output_dir = device_path + "/output"
+
+    # Prepare the device and Push the respective files to the device
+    adb = Adb(hostname=hostname)
+    devices = adb.get_devices()
+    if len(devices) == 0:
+        raise ValueError("No device found connected to the host.")
+    if device_id is None:
+        device_id = devices[0]
+    elif device_id not in devices:
+        raise ValueError("device ID not listed in connected adb devices.")
+
+    try:
+        # if the sdk directory path's file exist then use it, otherwise
+        # use the artifacts directory path
+        open(os.path.join(artifacts_dir, "bin", buildVariant, "snpe-platform-validator"), 'rb')
+        is_sdk_dir = True
+    except IOError:
+        is_sdk_dir = False
+
+    # create a new instance of adb with device_id
+    adb = Adb(device_id, hostname)
+
+    # Push the required libs and bins to the device
+    (output, dir_del_code) = adb.shell("rm -rf %s" % device_path)
+    print ("WARNING: Deleting path {} on device!".format(device_path))
+    if dir_del_code != 0:
+        message = "Unable to remove directory " + device_path + " on the device.\n"
+        for msg in output:
+            message = message + msg
+        raise ValueError(message)
+
+    (output, make_dir_code) = adb.shell("mkdir -p %s" % device_path)
+    if make_dir_code != 0:
+        message = "Unable to create directory " + device_path + " on the device.\n"
+        for msg in output:
+            message = message + msg
+        raise ValueError(message)
+
+    (output, make_bin_dir_code) = adb.shell("mkdir -p %s" % (device_path + "/bin"))
+    if make_bin_dir_code != 0:
+        message = "Unable to create directory " + device_path + "/bin" + " on the device.\n"
+        for msg in output:
+            message = message + msg
+        raise ValueError(message)
+
+    # Push the snpe-platform-validator of the proper variant to device
+    if is_sdk_dir:
+        path_to_push = os.path.join(artifacts_dir, "bin", buildVariant, "snpe-platform-validator")
+    else:
+        path_to_push = os.path.join(artifacts_dir, buildVariant, "bin", "snpe-platform-validator")
+    (output, push_code) = adb.push(path_to_push, device_path + "/bin/")
+    if push_code != 0:
+        message = "couldn't push " + path_to_push + " to device.\n"
+        for msg in output:
+            message = message + msg
+        raise ValueError(message)
+
+    change_to_exec_command = "chmod a+x "
+    change_to_exec_command += device_path + "/bin/*"
+    (output, change_exec_code) = adb.shell(change_to_exec_command)
+    if change_exec_code != 0:
+        message = "couldn't change permissions for " + change_to_exec_command + " on the device.\n"
+        for msg in output:
+            message = message + msg
+        raise ValueError(message)
+
+    (output, make_lib_dir_code) = adb.shell("mkdir -p %s" % (device_path + "/lib"))
+    if make_lib_dir_code != 0:
+        message = "Unable to create directory " + device_path + "/lib" + " on the device.\n"
+        for msg in output:
+            message = message + msg
+        raise ValueError(message)
+    # Push the libraries to device
+    if is_sdk_dir:
+        path_to_push = os.path.join(artifacts_dir, "lib", buildVariant, "*.so")
+    else:
+        path_to_push = os.path.join(artifacts_dir, buildVariant, "lib", "*.so")
+
+    (output, lib_push_code) = adb.push(path_to_push, device_path + "/lib")
+    if lib_push_code != 0:
+        message = "couldn't push " + path_to_push + " to device.\n"
+        for msg in output:
+            message = message + msg
+        raise ValueError(message)
+
+    (output, make_dsp_dir_code) = adb.shell("mkdir -p %s" % (device_path + "/dsp"))
+    if make_dsp_dir_code != 0:
+        message = "Unable to create directory " + device_path + "/dsp" + " on the device.\n"
+        for msg in output:
+            message = message + msg
+        raise ValueError(message)
+    # Push the dsp libraries to device
+    if is_sdk_dir:
+        path_to_push = os.path.join(artifacts_dir, "lib", "dsp", "*.so")
+    else:
+        path_to_push = os.path.join(artifacts_dir, "dsp" , "lib", "*.so")
+    (output, dsp_push_code) = adb.push(path_to_push, device_path + "/dsp")
+    if dsp_push_code != 0:
+        message = "couldn't push " + path_to_push + " to device.\n"
+        for msg in output:
+            message = message + msg
+        raise ValueError(message)
+
+    # print command_args
+    command = "export LD_LIBRARY_PATH=" + device_path + "/lib/ ;"
+    command += "export ADSP_LIBRARY_PATH='/system/lib/rfsa/adsp;/system/vendor/lib/rfsa/adsp;" + device_path + "/dsp/' ;"
+    command += device_path + "/bin/snpe-platform-validator "
+
+    # Prepare the arguments and Pass the arguments to the snpe-platform-validator executable
+    if runtime is not None:
+        command += "--runtime "
+        command += runtime
+        command += " "
+    if output_dir is not None:
+        command += "--targetPath "
+        command += output_dir
+        command += " "
+    if test_runtime is not False:
+        command += "--testRuntime "
+    if runtime_version is not False:
+        command += "--coreVersion "
+    if lib_version is not False:
+        command += "--libVersion "
+    if debug is not False:
+        command += "--debug "
+
+    print (command)
+    (output, result_status) = adb.shell(command)
+    for msg in output:
+        print (msg)
+
+    if result_status == 0:
+        # Collect the results
+        results_dir = 'output'
+        if not os.path.exists(results_dir):
+            try:
+                os.mkdir(results_dir)
+            except OSError as e:
+                print (e.strerror)
+        results_file = 'Result_' + device_id + '.csv'
+        result_csv_path = os.path.join(results_dir, results_file)
+        (output, pull_code) = adb.pull(output_dir + '/Result.csv', result_csv_path)
+        if pull_code != 0:
+            print ("Error in extracting results from device.\n")
+            for msg in output:
+                print (msg)
+
+    del adb
+
+
+if __name__ == "__main__":
+    platform_validator()

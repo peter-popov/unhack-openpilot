@@ -1,0 +1,252 @@
+SNPE SDK
+
+SNPE is a software development kit for building machine learning based applications.
+
+SNPE 1.30.0
+
+Dependencies:
+
+* for converter tools
+  * Ubuntu 14.04
+  * Python 2.7
+* for building Android example build
+  * optional Android NDK (android-ndk-r17c-linux-x86)
+  * optional Android SDK (sdk version 23 and build tools version 23.0.2)
+  * Java 8 JDK
+* for Linux Embedded (LE) platform
+  * libatomic.so.1
+
+Contents:
+
+* Model conversion tools to convert trained models from Caffe and TensorFlow to SNPE DLC format
+* SNPE neural network accelerated runtime
+* Sample Native C++ and Android applications
+* SNPE C++ library x86_64-linux-clang, arm-android-clang6.0, aarch64-android-clang6.0,
+  arm-linux-gcc4.9sf, aarch64-linux-gcc4.9, arm-oe-linux-gcc8.2hf, aarch64-oe-linux-gcc8.2
+* Android archive (aar) to facilitate Android application integration using SNPE
+* Snapdragon Neural Processing Engine SDK Reference Guide
+
+Known Issues:
+
+* Please refer to the "Limitations and Issues" chapter of the SNPE User and Reference Guide
+
+Changelog:
+
+1.30.0
+* Documentation has been added to reflect the new common converter command line options for input processing.
+* Converters now propagate required batchnorm information for performing quantization optimizations.
+* Support for the new bias correction quantization optimization which adjusts biases by analyzing float vs quantized activation errors and adjusting the model to compensate.
+* ONNX converter now filters single input Concats as a no ops as SNPE didn’t support them.
+* Converter input processing now uniformly handles different input types and encodings.
+* ONNX converter now supports the ConvTranspose ‘output_padding’ attribute by adding an additional pad layer after the ConvTranspose op.
+* Integrates the latest flatbuffer 1.11 library which brings speed improvements and options for model size reduction.
+* GPU size limitations with the ArgMax op (when setting the keepDims op attribute to false) can be worked around by enabling CPU fallback.
+* Fixed DSP error with MobileNet SSD on QCS403 and QCS405.
+* Fixed the issue with partitioning of deconv layer in HTA.
+
+
+1.29.0
+* Added support for dlc reorder tool
+* Optimization of HTA d32 conversions
+* Added tf space_to_depth op for SNPE CPU and DSP runtime
+* Benchmarking scripts enhanced for showing further break down of execution time, across various components
+* Added support for additional ONNX binary element-wise ops
+* Optimized deconv layer for improving performance
+* Fixed an issue related to runtime error in DSP runtime
+* Performance Optimization of SNPE GPU Runtime for Shufflenet V2 by using profiling level config
+
+1.28.0
+* Added an optional argument to isRuntimeAvailable for the DSP runtime so that it doesn't activate the DSP
+* Allow UB_T8 and UB_FLOAT output for snpe-net-run
+* Added a new command line option for snpe-dlc-diff to check layer names
+* Updated the --dlc argument to --output_path for snpe-caffe-to-dlc to align with the ONNX converter
+* Added --dry_run argument to snpe-onnx-to-dlc to allow evaluation for successful conversion on an ONNX model
+* Added support for the gather op in the DSP runtime
+* Added support to convert the TF MobileNet-V1-FPN-SSD model
+* Fixed a memory leak in the DSP runtime that is seen when repeatedly loading and unloading a network
+* Addressed issues on V66 DSPs related to acquiring VTCM memory
+* Fixed an issue related to multiple inputs for the Caffe converter
+* Fixed an issue in the TF converter related to element-wise sun and the atrous parameter
+* Fixed an issue in the TF converter related to tf.crop_and_resize when there are only 2 inputs.
+* Fixed additional cases of uncaught exceptions with the aarch64-android-clang6.0 platform
+
+1.27.0
+* Added new APIs support for setting output tensor names to snpeBuilder and to fetch output tensor names for a given output layer name.
+* Improved the peak memory usage with DLC v3 format.
+* Fixed few issues with performance and runtime failures on DSP runtime.
+* Fixed few issues and improved error handling for platform validator.
+* Fixed the issues with Pooling and Instance norm layers of Tensorflow converter
+* Removed *-android-gcc4.9 platform support. This compiler has been retired for the Android NDK,
+  so all support is transitioning to using Clang for Android.
+* Remove the arm-linux-gcc4.8hf platform. The development platform has been retired.
+
+Changelog:
+1.26.0
+* Added support for the ONNX Gather Op in the ONNX Converter and CPU runtime
+* Optimized DeConvolution Layer for the DSP runtime
+* Support for tf.nn.moments in the TF converter, CPU and DSP runtimes
+* Added TF Reflect Pad support for the DSP runtime
+* Add symmetric quantizer option in snpe-dlc-quantize
+* Add support for batch > 1 when using the Scale Layer on the DSP runtime
+* Updated Platform Validator python script to be OS-independent
+* Added additional optimizations for HTA input conversion
+
+Changelog:
+1.25.0
+* Updated DLC format to improve load time performance and memory consumption. Old DLCs will continue to work as is, but new DLCs generated from 1.25 will use the new format
+* Added support for optimized MultiClassNms and ArgMax ops on DSP runtime
+* Added option to request larger memory allocations on the DSP for improved init time, at the expense of more memory use
+* Improved concurrency for multiple SNPE objects running simultaneously on DSP
+* Improvements when using priority control on DSP
+* Added support for channel shuffle and ArgMax in the ONNX converter
+* Support multiple subnets within the AIP runtime
+
+Changelog:
+1.24.0
+* Added setProfilingLevel API support for AIP and CPU runtimes
+* Adressed various stability issues on AIP runtime.
+* Support multi inputs and multiple outputs on each SNPE AIP’s subnet
+
+Changelog:
+1.23.0
+* Upgrade to Android NDK r17c to build SNPE
+* Improving initialization and de-initialization times
+* Various DSP timing fixes
+* Addressed some DSP concurrency edge cases that could impact output values
+* TF converter support for non max suppression, crop and resize Ops
+
+Changelog:
+1.22.0
+* Support for several new ops on DSP runtime
+* Upgrade to Android NDK r16b to build SNPE
+* setProfilingLevel API support in DSP runtime
+* Added new tool snpe-throughput-net-run
+
+Changelog:
+1.21.0
+* Tensorflow converter and CPU runtime support for various ops
+* DSP runtime support for Eltwise Realdiv and Square ops
+* GPU support for resize_align_corners layer
+
+Changelog:
+1.20.0
+* Support for QCS605 LE platform
+* NDK version upgrade to r14b
+* Tensorflow converter support for eltwise sqrt and softmax with dimension > 2
+* Platform validation command line tool
+
+Changelog:
+1.19.0
+* ELU op support for Tensorflow/Onnx Converters and CPU/GPU runtimes
+* BoxWithNMSLimit and BBoxTransform ops support in caffe2 converter
+* Support for Caffe Power Layer in GPU
+
+Changelog:
+1.18.0
+* Support for tensorflow pad, elementwise subtraction on GPU
+* ONNX converter support for shape and pad ops
+* Tensorflow converter support for argmax, channel shuffle and elementwise subtraction ops
+
+Changelog:
+1.17.0
+* Support for Scale Layer in Caffe converter and DSP runtime
+* DSP support for batch>1 and ChannelShuffle
+* Updated SDK examples for Inception v3 2016 model
+
+1.16.2
+* Remove linkage to libstdc++.so in DSP loader libraries
+
+1.16.1
+* Add note regarding upgrading from previous SDKs to 1.16
+* DSP runtime fixes
+* Fix axis-tracking for 1D BatchNorm
+* Remove linking to libstdc++.so shared library
+
+1.16.0
+* Add Caffe2 ChannelShuffle layer support for CPU and GPU runtimes
+* Add Inception v3 model to Android application example
+* Add layer optimizations for Sigmoid, BatchNorm and Instance Norm on DSP
+* Support for batch>1 in Caffe, Caffe2, ONNX and TensorFlow converters
+* Support for batch>1 in CPU and GPU runtimes
+* Sustained high performance mode for DSP runtime
+
+1.15.2
+* Fix for GPU runtime memory leak
+* Fix for GPU reshape to/from 1D
+
+1.15.1
+* Fix for instance normalization followed by scale
+
+1.15.0
+* Support for instance normalization for Caffe and Caffe2
+* Support for MobilenetSSD (Caffe)
+
+1.14.1
+* Minor Fixes
+
+1.14.0
+* ONNX converter (alpha), multiple enhancements and fixes
+
+1.13.0
+* GPU and DSP v65 improvements, GPU floating point 16 support.
+
+1.12.0
+* Support for Android LLVM/libc++, MobilenetSSD (TensorFlow)
+
+1.10.2
+* Fix a bug for GPU runtime
+
+1.10.1
+* Bug fix for mixed userbuffer input types for DSP runtime
+
+1.10.0
+* Support for Mobilenet on DSP
+* Added enhanced DSP runtime
+* Support for Snapdragon Flight Board
+* Updates for UserBuffers
+
+1.8.0
+* Mobilenet support on CPU,GPU
+* Support for Snapdragon 636
+* Android 64 bit support
+
+1.6.0
+* Support for Snapdragon 450 - CPU, GPU
+
+1.4.0
+* Support for Snapdragon 630 - CPU, GPU
+* Support for FasterRCNN - CPU, DSP
+* Support for 820 AGL platform - ADSP
+
+1.2.2
+* QDN Release
+
+1.2.0
+* Beta Caffe2 converter
+
+1.0.2
+* Support for Snapdragon 660 - CPU, GPU, CDSP
+* Support for 820 AGL platform - CPU, GPU
+
+1.0.1
+* Updated documentation
+
+1.0.0
+* Official TensorFlow conversion support
+* DSP runtime support
+* New dlc-quantize tool
+* API changes (non-backwards compatible changes were made)
+* DLC files created prior to 1.0 release need to be regenerated
+
+0.11.0
+* Added support for rectangular filters in Convolution and Pooling layer
+* Added support for group parameter in Deconvolution layer
+* Added new layers: Slice
+* Removed core affinity setting in engine
+* Added tensorflow converter
+* Added Linux Embedded (LE) soft float support which has been tested on yocto distribution
+* DLC files created prior to 0.7.0 release need to be regenerated
+
+0.7.0
+* Added new layers: Batchnorm + scale, Crop, Pre-processing
+* Removed SNPEFactory::CreateInstance version using model buffer

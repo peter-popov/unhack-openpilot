@@ -1,0 +1,21 @@
+#!/usr/bin/env python
+# -*- mode: python -*-
+# ==============================================================================
+#
+#  Copyright (c) 2018-2019 Qualcomm Technologies, Inc.
+#  All Rights Reserved.
+#  Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+# ==============================================================================
+
+from snpe.converters import onnx as onnx_converter
+from snpe.converters.common.converter_ir import ir_to_dlc
+
+if __name__ == '__main__':
+    parser = onnx_converter.OnnxConverter.ArgParser()
+    converter = onnx_converter.OnnxConverter(parser.parse_args())
+    graph = converter.convert()
+    optimized_graph = converter.ir_optimize(graph, perform_axes_to_spatial_first_order=True)
+
+    # save model as dlc
+    ir_to_dlc.save(optimized_graph, converter)

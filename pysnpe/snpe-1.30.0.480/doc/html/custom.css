@@ -1,0 +1,39 @@
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  Copyright (c) 2016 Qualcomm Technologies, Inc.
+  All Rights Reserved. 
+  Confidential and Proprietary - Qualcomm Technologies, Inc.
+ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ 
+ custom.css - Sytlesheet file
+
+ 08/23/16   LB   Created to be used with Doxyfile 1.8.11 to format HTML output for  
+                 the SNPE UG and SDK.
+
+*/
+#nav-sync {
+	display:none
+	
+}
+
+#nav-sync img {
+	display:none
+}
+
+#nav-sync img:hover {
+	display:none
+}
+
+
+.tabs {
+    background-image: url('tab_b.png');
+    width: 100%;
+    z-index: 101;
+    font-size: 13px;
+}
+
+.tabs2 {
+   display:none;
+}
+.tabs3 {
+   display:none;
+}

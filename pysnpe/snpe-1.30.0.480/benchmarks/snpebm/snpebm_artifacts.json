@@ -1,0 +1,26 @@
+{
+    "Artifacts": {
+        "arm-android-clang6.0": [
+            "snpe-net-run",
+            "snpe-net-run-g",
+            "libSNPE.so",
+            "libSNPE_G.so",
+            "libsnpe_adsp.so",
+            "libsnpe_dsp_domains.so",
+            "libsnpe_dsp_domains_v2.so",
+            "libhta.so",
+            "libc++_shared.so",
+            "libsymphony-cpu.so"
+        ],
+        "dsp": [
+            "libsnpe_dsp_skel.so",
+            "libsnpe_dsp_v65_domains_v2_skel.so",
+            "libsnpe_dsp_v66_domains_v2_skel.so",
+            "libsnpe_dsp_domains_skel.so"
+        ],
+        "x86_64-linux-clang": [
+            "snpe-dlc-info",
+            "snpe-diagview"
+        ]
+    }
+}

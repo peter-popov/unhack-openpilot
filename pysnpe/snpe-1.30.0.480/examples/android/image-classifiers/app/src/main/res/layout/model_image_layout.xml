@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+ * Copyright (c) 2016 Qualcomm Technologies, Inc.
+ * All Rights Reserved.
+ * Confidential and Proprietary - Qualcomm Technologies, Inc.
+-->
+<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
+       android:id="@+id/model_image"
+       android:layout_width="match_parent"
+       android:layout_height="match_parent"
+           android:minHeight="200dp"
+       android:scaleType="fitCenter">
+</ImageView>

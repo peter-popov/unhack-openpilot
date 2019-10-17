@@ -1,0 +1,22 @@
+{
+    "Name":"AlexNet",
+    "HostRootPath": "alexnet",
+    "HostResultsDir":"alexnet/results",
+    "DevicePath":"/data/local/tmp/snpebm",
+    "Devices":["454d40f3"],
+    "HostName": "localhost",
+    "Runs":2,
+
+    "Model": {
+        "Name": "ALEXNET",
+        "Dlc": "../models/alexnet/dlc/bvlc_alexnet.dlc",
+        "InputList": "../models/alexnet/data/target_raw_list.txt",
+        "Data": [
+            "../models/alexnet/data/cropped"
+        ]
+    },
+
+    "Runtimes":["GPU", "CPU"],
+    "Measurements": ["timing"]
+
+ }

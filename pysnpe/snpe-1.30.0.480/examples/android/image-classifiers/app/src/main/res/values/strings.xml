@@ -1,0 +1,33 @@
+<!--
+ * Copyright (c) 2016-2018 Qualcomm Technologies, Inc.
+ * All Rights Reserved.
+ * Confidential and Proprietary - Qualcomm Technologies, Inc.
+-->
+<resources>
+    <string name="app_name">SNPE Image Classifiers</string>
+    <string name="loading_models">Loading models...</string>
+    <string name="models_header"><u>Models</u></string>
+    <string name="model_extraction_failed">Failed to extract model.</string>
+    <string name="model_name">Model</string>
+    <string name="model_name_placeholder">Model A</string>
+    <string name="model_dimensions">Dimensions</string>
+    <string name="model_dimensions_placeholder">[X,Y,Z]</string>
+    <string name="model_load_failed">Failed to load model</string>
+    <string name="output_layers">Output Layers</string>
+    <string name="loading_network">Loading Network...</string>
+    <string name="model_not_loaded">Model not yet loaded!</string>
+    <string name="classification_failed">Classification failed.</string>
+    <string name="model_version">Version</string>
+    <string name="model_version_placeholder">N/A</string>
+    <string name="snpe_version">SNPE version: %1$s</string>
+    <string name="builder_runtime">Runtime</string>
+    <string name="builder_tensor_format">Tensor</string>
+    <string name="statistic_init">Net Init</string>
+    <string name="statistic_java_execute">Java Execute</string>
+    <string name="statistic_native_execute">Native Execute</string>
+    <string name="model_statistic_init_placeholder">12345 ms</string>
+    <string name="model_statistic_execute_placeholder">20 ms</string>
+    <string name="not_available">N/A</string>
+    <string name="build_network">Build network!</string>
+    <string name="classification_hint">Click on an image to classify</string>
+</resources>

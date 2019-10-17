@@ -1,0 +1,52 @@
+# Copyright (c) 2017 Qualcomm Technologies, Inc.
+# All Rights Reserved.
+# Confidential and Proprietary - Qualcomm Technologies, Inc.
+
+# Specify the compiler flags
+#CXX ?= g++
+
+CXXFLAGS += -std=c++11 -fPIC -march=x86-64
+
+
+# Include paths
+INCLUDES += -I $(SNPE_ROOT)/include/zdl
+
+# Specify the paths to the libraries
+LDFLAGS  += -L $(SNPE_ROOT)/lib/x86_64-linux-clang
+
+
+# Specify the link libraries
+LLIBS    += -lSNPE
+LLIBS    += $(SNPE_ROOT)/lib/x86_64-linux-clang/libsymphony-cpu.so
+
+
+# Specify the target
+PROGRAM  := snpe-sample
+SRC_DIR  := jni
+OBJ_DIR  := obj/local/x86_64-linux-clang
+
+# Specify the source list and the object directories.
+# The source file is in the 'jni' directory to be compatible with the
+# Android NDK structure.
+# Get the list of source files including the directory
+SRC      := $(wildcard $(SRC_DIR)/*.cpp)
+# Generate the output names by substituting the object dir for the source dir
+OBJS     := $(subst $(SRC_DIR),$(OBJ_DIR),$(subst .cpp,.o,$(SRC)))
+
+default: all
+all: $(OBJ_DIR)/$(PROGRAM)
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp $(OBJ_DIR)
+	$(CXX) -c $(CXXFLAGS) $(INCLUDES) $< -o $@
+
+$(OBJ_DIR)/$(PROGRAM): $(OBJS)
+	$(CXX) $(LDFLAGS) $^ $(LLIBS) -o $@
+
+clean:
+	-rm -f $(OBJS) $(PROGRAM).o
+	-rm -f $(PROGRAM)
+
+$(OBJ_DIR):
+	mkdir -p $(OBJ_DIR)
+
+.PHONY: default clean

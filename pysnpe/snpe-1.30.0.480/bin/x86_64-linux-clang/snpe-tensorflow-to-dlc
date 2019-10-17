@@ -1,0 +1,114 @@
+#!/usr/bin/env python
+# =============================================================================
+#
+#  Copyright (c) 2015-2016,2018-2019 Qualcomm Technologies, Inc.
+#  All Rights Reserved.
+#  Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+# =============================================================================
+
+import logging
+import sys
+import traceback
+
+import tensorflow as tf
+
+try:
+    from snpe.dlc_utils import modeltools
+except ImportError as ie:
+    print("Failed to find necessary package:")
+    print(str(ie))
+    print("Please ensure that $SNPE_ROOT/lib/python is in your PYTHONPATH")
+    sys.exit(1)
+
+from snpe.converters.tensorflow.converter import DlcConverter
+from snpe.converters.tensorflow.loader import ModelLoader
+from snpe.converters.tensorflow.util import ConverterError
+from snpe.converters.common.utils import snpe_converter_utils
+from snpe.converters.common.utils.converter_base import ConverterBase
+
+
+def __setup_logger(verbose):
+    formatter = '%(asctime)s - %(lineno)d - %(levelname)s - %(message)s'
+    formatter = logging.Formatter(formatter)
+    lvl = logging.WARN
+    if verbose:
+        lvl = logging.DEBUG
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(lvl)
+    stream_handler.setFormatter(formatter)
+
+    logger = logging.getLogger()
+    logger.setLevel(lvl)
+    logger.addHandler(stream_handler)
+    return logger
+
+
+class ArgParser(ConverterBase.ArgParser):
+    def __init__(self):
+        super(ArgParser, self).__init__("tensorflow")
+        # add command-line options custom to tensorflow converter
+        self.parser.add_required_argument('-d', '--input_dim', nargs=2, action='append', required=True, metavar=('INPUT_NAME','INPUT_DIM'),
+                                          help='The names and dimensions of the network input layers specified in the format "input_name" comma-separated-dimensions, for example: "data" 1,224,224,3. Note that the quotes should always be included in order to handle special characters, spaces, etc. For multiple inputs specify multiple --input_dim on the command line like: --input_dim "data1" 1,224,224,3 --input_dim "data2" 1,50,100,3.')
+        self.parser.add_required_argument('--out_node', type=str, required=True, action='append',
+                                          help='Name of the graph\'s output node.')
+        self.parser.add_optional_argument('--graph', type=str,
+                                          help='Path to TensorFlow graph def (.pb saved as binary) or graph meta (.meta) file.'
+                                               'Note: this option is DEPRECATED, please use --input_network or -i')
+        self.parser.add_optional_argument("--verbose", dest="verbose", action="store_true",
+                                           help="Verbose printing", default=False)  # TODO: remove once IR is integrated
+        self.parser.add_optional_argument('--dlc', type=str,
+                                           help='Path to DLC file to be generated.'
+                                                'Note: this option is DEPRECATED, please use --output_path or -o')
+        self.parser.add_optional_argument("--allow_unconsumed_nodes", action="store_true",
+                                          help="Uses a relaxed graph node to layer mapping algorithm which may not use "
+                                               "all graph nodes during conversion while retaining structural integrity.",
+                                          default=False)
+
+
+def main():
+    parser = ArgParser()
+    args = parser.parse_args()
+    logger = __setup_logger(args.verbose)
+    session = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
+    with session.as_default():
+        try:
+            (in_nodes, in_dims) = list(zip(*args.input_dim))
+            loader = ModelLoader(logger)
+            # TODO: remove for 1.31.0
+            if args.graph:
+                logger.warn("Option: '--graph' is DEPRECATED and will be removed in upcoming release."
+                            " Please use '--input_path', '-i'")
+                input_model_path = args.graph
+            else:
+                input_model_path = args.input_network
+            # Note: not in converter base class since the output command-line was already changed for caffe/onnx
+            if args.dlc:
+                logger.warn("Option: '--dlc' is DEPRECATED and will be removed in upcoming release."
+                            " Please use '--output_path', '-o'")
+                output_model_path = args.dlc
+            else:
+                output_model_path = args.output_path
+
+            # get input_types only since loader constructs an Input Class from name, shape and type.
+            # TODO: This will be removed once we move tf front-end to converter_ir.
+            in_types = [type_ for _, type_ in args.input_type]
+
+            model = loader.load(input_model_path, in_nodes, in_dims, in_types, args.out_node, session)
+            converter_command = snpe_converter_utils.sanitize_args(args, args_to_ignore=['graph', 'd', 'dlc', 'i',
+                                                                                         'input_network', 'output_path'])
+            converter = DlcConverter(model, not args.allow_unconsumed_nodes)
+            converter.convert(output_model_path, args.copyright_file, args.model_version, converter_command)
+            logger.info("Model conversion completed!")
+        except ConverterError as e:
+            logger.error("Conversion failed: {}".format(str(e)))
+            sys.exit(1)
+        except Exception as e:
+            logger.error("Encountered Error: {}".format(str(e)))
+            traceback.print_exc()
+            sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
+

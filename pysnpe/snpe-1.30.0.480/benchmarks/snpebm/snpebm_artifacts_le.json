@@ -1,0 +1,13 @@
+{
+    "Artifacts": {
+        "arm-linux-gcc4.9sf": [
+            "snpe-net-run",
+            "libSNPE.so",
+            "libsymphony-cpu.so"
+        ],
+        "x86_64-linux-clang": [
+            "snpe-dlc-info",
+            "snpe-diagview"
+        ]
+    }
+ }

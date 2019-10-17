@@ -1,0 +1,1410 @@
+#!/usr/bin/env python
+# -*- mode: python -*-
+# =============================================================================
+#
+#  Copyright (c) 2017-2019 Qualcomm Technologies, Inc.
+#  All Rights Reserved.
+#  Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+# =============================================================================
+from __future__ import print_function
+import argparse
+import logging
+import os
+import sys
+import csv
+from collections import OrderedDict
+
+try:
+    from snpe.dlc_utils import snpe_dlc_utils
+except ImportError as ie:
+    print("Failed to find necessary package:")
+    print(str(ie))
+    print("Please ensure that $SNPE_ROOT/lib/python is in your PYTHONPATH")
+    sys.exit(1)
+
+# Assign commonly used functions from snpe.dlc_utils.py to variables
+print_value = snpe_dlc_utils.print_value
+print_row = snpe_dlc_utils.print_row
+get_si_notation = snpe_dlc_utils.get_si_notation
+
+def compare_outputs_by_name(m1,m2):
+    """
+    Compares the names of between-layer output
+    between two models. Stores outputs with unique names.
+
+    @param m1: First DLC model
+    @param m2: Second DLC model
+
+    @return: A list containing a boolean, a list, and a string
+            Boolean:    True:   No unique outputs
+                        False:  Some unique outputs
+
+            List:    Contains two dictionaries
+                     - Model 1 Unique Outputs
+                     - Model 2 Unique Outputs
+
+            String:    Info Message for User
+                       (will not appear when there is an output table)
+    """
+
+    # Get List of layer output name
+    m1_output_names = m1.get_output_names()
+    m2_output_names = m2.get_output_names()
+
+    # Get Dictionary of layer names/ID
+    m1_layer_info = m1.ids_layer()
+    m2_layer_info = m2.ids_layer()
+
+    # Get layer names
+    m1_sorted_info = list(sorted(m1_layer_info.items(), key=lambda id:(id[1])))
+    m1_layer_names = [layer_info[0] for layer_info in m1_sorted_info]
+
+    m2_sorted_info = list(sorted(m2_layer_info.items(), key=lambda id:(id[1])))
+    m2_layer_names = [layer_info[0] for layer_info in m2_sorted_info]
+
+    # Get Unique Output Names
+
+    m1_unique_output = OrderedDict()
+    m2_unique_output = OrderedDict()
+
+    for idx, (m1_name, m2_name) in enumerate(zip(m1_output_names, m2_output_names)):
+
+        # Accounts for when a model has more unique output names for a layer
+        diff_len_output_name = len(m1_name) - len(m2_name)
+        if diff_len_output_name > 0:
+            m2_name.extend(['']*diff_len_output_name)
+        elif diff_len_output_name < 0:
+            m1_name.extend(['']*abs(diff_len_output_name))
+
+        # Get unique output names
+        m1_name_unique = [name for name in m1_name if name not in m2_name]
+        m2_name_unique = [name for name in m2_name if name not in m1_name]
+
+        # If there is uniqueness
+        if len(m1_name_unique) != 0 and len(m2_name_unique) != 0:
+            # Update with unique names; Should have same layer names
+            m1_unique_output.update({m1_layer_names[idx]: (idx,m1_name_unique)})
+            m2_unique_output.update({m2_layer_names[idx]: (idx,m2_name_unique)})
+
+    if len(m1_unique_output) == 0 and len(m2_unique_output) == 0:
+        return [True, [m1_unique_output, m2_unique_output], '\nInfo: Model 1 and Model 2 share all of the '
+                                                            'same layer output names\n']
+    else:
+        return [False, [m1_unique_output, m2_unique_output], 'No output message, since there is an output table']
+
+def compare_layers_by_name(m1, m2):
+    """
+    Compares layer names between two models.
+    Stores layers with unique names/types for each model.
+
+    @param m1: First DLC model
+    @param m2: Second DLC model
+
+    @return: A list containing a boolean variable, a list, and a string.
+
+            Boolean:    True:   No unique layers
+                        False:  Some unique layers
+
+            List:       Contains two dictionaries
+                        - Model 1 unique layers
+                        - Model 2 unique layers
+
+            String:     Info message for user
+                        (will not appear when there is an output table)
+    """
+
+    # Dictionary of layer name and type info
+    m1_types_info = m1.types_info()
+    m2_types_info = m2.types_info()
+
+    # Dictionary of layer name and id info
+    m1_id_layer = m1.ids_layer()
+    m2_id_layer = m2.ids_layer()
+
+    # List of unique layers
+    m1_unique_layers = list(set(m1_types_info.keys()) - set(m2_types_info.keys()))
+    m2_unique_layers = list(set(m2_types_info.keys()) - set(m1_types_info.keys()))
+
+    # Dictionary of unique layers, sorted by type, in one-to-many relationship
+    m1_unique_sorted = {}
+    m2_unique_sorted = {}
+
+    for name, type in sorted(m1_types_info.items()):
+        if name in m1_unique_layers:
+            m1_unique_sorted.setdefault(type, []).append([name, m1_id_layer.get(name)])
+
+    for name, type in sorted(m2_types_info.items()):
+        if name in m2_unique_layers:
+            m2_unique_sorted.setdefault(type, []).append([name, m2_id_layer.get(name)])
+
+    # Check if Model 1 and 2 have all the same layers
+    if len(m1_unique_layers) == 0 and len(m2_unique_layers) == 0:
+        return [True, [m1_unique_sorted, m2_unique_sorted], '\nInfo: Model 1 and Model 2 share all of the '
+                                                            'same layer names & types\n']
+    else:
+        return [False, [m1_unique_sorted, m2_unique_sorted], 'No output message, since there is an output table']
+
+
+def compare_layers_by_parameters(m1, m2):
+    """
+    Compares parameter values between the shared layers of two models.
+    Stores layers with parameter differences for each model.
+
+    @param m1: First DLC model
+    @param m2: Second DLC model
+
+    @return: A list containing a boolean variable, a list, and a string.
+
+            Boolean:    True:   No param differences between shared layers
+                        None:   No shared layers, thus parameters not comparable
+                        False:  Some param differences between shared layers
+
+            List:       Contains two dictionaries
+                        - Model 1 layers with param differences
+                        - Model 2 layers with param differences
+
+            String:     Info message for user
+                        (will not appear when there is an output table)
+    """
+
+    # Dictionary of layer name and parameter info
+    m1_params_info = m1.params_info()
+    m2_params_info = m2.params_info()
+
+    # Dictionary of layer name and id info
+    m1_id_layer = m1.ids_layer()
+    m2_id_layer = m2.ids_layer()
+
+    # List of shared layers
+    m1_layers = OrderedDict.fromkeys(list(m1_params_info.keys()))
+    m2_layers = OrderedDict.fromkeys(list(m2_params_info.keys()))
+    shared_layers=list(OrderedDict.fromkeys(x for x in m1_layers if x in m2_layers))
+
+    m1_diff_parameters = OrderedDict()
+    m2_diff_parameters = OrderedDict()
+    for name in shared_layers:
+        if m1_params_info.get(name) != m2_params_info.get(name):
+            m1_diff_parameters.update({name: (m1_params_info.get(name), m1_id_layer.get(name))})
+            m2_diff_parameters.update({name: (m2_params_info.get(name), m2_id_layer.get(name))})
+
+    # Check if Model 1 and 2 have zero parameter differences
+    if len(m1_diff_parameters) == 0 and len(m2_diff_parameters) == 0:
+        return [True, [m1_diff_parameters, m2_diff_parameters], '\nInfo: Model 1 and Model 2 have no parameter '
+                                                                'differences between identically named layers\n', len(shared_layers)]
+    # Check if Model 1 and 2 have no shared layers
+    elif len(shared_layers) == 0:
+        return [None, [m1_diff_parameters, m2_diff_parameters], '\nWarning: Model 1 and Model 2 have no identically '
+                                                                'named layers. Parameters are not comparable.\n']
+    else:
+        return [False, [m1_diff_parameters, m2_diff_parameters], 'No output message, since there is an output table', len(shared_layers)]
+
+def compare_layers_by_dimensions(m1, m2):
+    """
+    Compares dimensions between the shared layers of two models.
+    Stores layers with dimension differences for each model.
+
+    @param m1: First DLC model
+    @param m2: Second DLC model
+
+    @return: A list containing a boolean variable, a list, and a string.
+
+            Boolean:    True:   No dimension differences between shared layers
+                        None:   No shared layers, thus dimension not comparable
+                        False:  Some dimension differences between shared layers
+
+            List:       Contains two dictionaries
+                        - Model 1 layers with dimension differences
+                        - Model 2 layers with dimension differences
+
+            String:     Info message for user
+                        (will not appear when there is an output table)
+    """
+
+    # Dictionary of layer name and dimension info
+    m1_dims_info = m1.dims_info()
+    m2_dims_info = m2.dims_info()
+
+    # Dictionary of layer name and id info
+    m1_id_layer = m1.ids_layer()
+    m2_id_layer = m2.ids_layer()
+
+    # List of shared layers
+    m1_layers = OrderedDict.fromkeys(list(m1_dims_info.keys()))
+    m2_layers = OrderedDict.fromkeys(list(m2_dims_info.keys()))
+    shared_layers=list(OrderedDict.fromkeys(x for x in m1_layers if x in m2_layers))
+
+    m1_diff_dimensions = OrderedDict()
+    m2_diff_dimensions = OrderedDict()
+    for name in shared_layers:
+        if m1_dims_info.get(name) != m2_dims_info.get(name):
+            m1_diff_dimensions.update({name: (m1_dims_info.get(name), m1_id_layer.get(name))})
+            m2_diff_dimensions.update({name: (m2_dims_info.get(name), m2_id_layer.get(name))})
+
+    # Check if Model 1 and 2 have zero dimension differences
+    if len(m1_diff_dimensions) == 0 and len(m2_diff_dimensions) == 0:
+        return [True, [m1_diff_dimensions, m2_diff_dimensions], '\nInfo: Model 1 and Model 2 have no dimension '
+                                                                'differences between identically named layers\n', len(shared_layers)]
+    # Check if Model 1 and 2 have no shared layers
+    elif len(shared_layers) == 0:
+        return [None, [m1_diff_dimensions, m2_diff_dimensions], '\nWarning: Model 1 and Model 2 have no identically '
+                                                                'named layers. Dimensions are not comparable.\n']
+    else:
+        return [False, [m1_diff_dimensions, m2_diff_dimensions], 'No output message, since there is an output table', len(shared_layers)]
+
+
+def compare_layers_by_weights(m1,m2):
+    """
+    Compares weights between corresponding layers of two models.
+    Stores layers with weight differences for each model.
+
+    NOTE: Comparison is only done for models with same architectures
+    i.e. identical input dimensions, layers names/types, and parameters
+
+    @param m1: First DLC model
+    @param m2: Second DLC model
+
+    @return: A list containing a boolean variable, a list, and a string.
+
+            Boolean:    True:   No weight differences between corresponding layers
+                        False:  Some weight differences between corresponding layers
+
+            List:       Layers that have differing weights across the
+                        two models
+
+            String:     Info message for user
+                        (will not appear when there is an output table)
+    """
+
+    # Dictionary of layer names and weight info
+    m1_weights_info = m1.weights_info()
+    m2_weights_info = m2.weights_info()
+
+    # Dictionary of layer name and id info
+    m1_id_layer = m1.ids_layer()
+    m2_id_layer = m2.ids_layer()
+
+    diff_weights = []
+    for name in m1_weights_info:
+
+        # Check if Model 1 and Model 2 have real-valued weights
+        if (m1_weights_info.get(name) is not None) and (m2_weights_info.get(name) is not None):
+
+            # Check if array shapes are different. If so, add layer to diff_weights
+            if m1_weights_info.get(name).shape != m2_weights_info.get(name).shape:
+                diff_weights.append([name, m1_id_layer.get(name)])
+            # Check if weight values are different. If so, add layer to diff_weights
+            else:
+                if (m1_weights_info.get(name) != m2_weights_info.get(name)).all():
+                    diff_weights.append([name, m1_id_layer.get(name)])
+
+        # Check if only one model has 'None' for weight value. If so, add to diff_weights.
+        elif (m1_weights_info.get(name) is not None) ^ (m2_weights_info.get(name) is not None):
+            diff_weights.append([name, m1_id_layer.get(name)])
+        else:
+            pass
+
+    if len(diff_weights) == 0:
+        return [True, diff_weights, '\nNote: Weights are the same\n']
+    else:
+        return [False, diff_weights, 'No output message, since there is an output table']
+
+
+def compare_models_aix_records(m1_aix_records, m2_aix_records):
+    """
+    Compares and marks differences in aix meta information parameters for each record of two models.
+    If record doesn't exit in one of the two models, marks the whole meta info in the record as new.
+
+    @param m1: First DLC model
+    @param m2: Second DLC model
+
+    @return: A list containing a boolean variable, a list, and a string.
+
+            Boolean:    True:   No Aix record and meta info difference between models
+                        False:  Either a new Aix record in one of the models or shared records had meta info
+                                differences
+
+            List:       list of:
+                        - Union of record names
+                        - Dictionary of either unique aix records in model1 or aix records with unique meta info
+                          in model1
+                        - Dictionary of either unique aix records in model1 or aix records with unique meta info
+                          in model2
+                            * note: dictionary keys for these unique parameters are marked with asterisks
+
+            String:     Info message for user
+                        (will not appear when there is an output table)
+    """
+
+    m1_m2_aix_records = list(set().union(m1_aix_records, m2_aix_records))
+
+    if m1_aix_records == m2_aix_records:
+        # check if both models have aix enabled so that the correct
+        # message is properly communicated
+        if not m1_aix_records and not m2_aix_records:
+            return [True, [m1_m2_aix_records, m1_aix_records, m2_aix_records],
+                    '\nInfo: No HTA records found in both models\n']
+        return [True, [m1_m2_aix_records, m1_aix_records, m2_aix_records],
+                '\nInfo: HTA records are the same\n']
+
+    m1_filtered_aix_record_dict = {}
+    m2_filtered_aix_record_dict = {}
+    m1_m2_aix_records = list(set().union(m1_aix_records, m2_aix_records))
+
+    for record_key in m1_m2_aix_records:
+        m1_filtered_aix_record_values = {}
+        m2_filtered_aix_record_values = {}
+        # mark all aix record values found in model11 but not model2
+        if record_key in m1_aix_records and record_key not in m2_aix_records:
+            m1_aix_meta_info = m1_aix_records[record_key]
+            for info_key in m1_aix_meta_info:
+                new_key = "*" + info_key  # add asterisks to key to indicate new param
+                m1_filtered_aix_record_values[new_key] = m1_aix_meta_info[info_key]
+
+        # mark all aix record values found in model2 but not model1
+        elif record_key in m2_aix_records and record_key not in m1_aix_records:
+            m2_aix_meta_info = m2_aix_records[record_key]
+            for info_key in m2_aix_meta_info:
+                new_key = "*" + info_key
+                m2_filtered_aix_record_values[new_key] = m2_aix_meta_info[info_key]
+        else:
+            # this means record is in both, check difference in each parameter
+            m1_aix_meta_info = m1_aix_records[record_key]
+            m2_aix_meta_info = m2_aix_records[record_key]
+
+            # check if any differences in each meta-info for records.
+            if m1_aix_meta_info != m2_aix_meta_info:
+                # mark meta keys unique to m1
+                for m1_meta_info_key, m1_meta_info_value in m1_aix_meta_info.items():
+                    if m1_meta_info_key not in m2_aix_meta_info or \
+                                    m1_meta_info_value != m2_aix_meta_info[m1_meta_info_key]:
+                        new_key = "*" + m1_meta_info_key
+                        m1_aix_meta_info[new_key] = m1_aix_meta_info.pop(m1_meta_info_key)
+                m1_filtered_aix_record_values.update(m1_aix_meta_info)
+
+                # mark meta keys unique to m2
+                for m2_meta_info_key, m2_meta_info_value in m2_aix_meta_info.items():
+                    if m2_meta_info_key not in m1_aix_meta_info or \
+                                    m2_meta_info_value != m1_aix_meta_info[m2_meta_info_key]:
+                        new_key = "*" + m2_meta_info_key
+                        m2_aix_meta_info[new_key] = m2_aix_meta_info.pop(m2_meta_info_key)
+                m2_filtered_aix_record_values.update(m2_aix_meta_info)
+
+        # add to corresponding dictionaries
+        if m1_filtered_aix_record_values:
+            m1_filtered_aix_record_dict[record_key] = m1_filtered_aix_record_values
+        if m2_filtered_aix_record_values:
+            m2_filtered_aix_record_dict[record_key] = m2_filtered_aix_record_values
+
+    # get the aix record keys that diff
+    m1_m2_aix_diff_records = list(set().union(m1_filtered_aix_record_dict, m2_filtered_aix_record_dict))
+    return [False, [m1_m2_aix_diff_records, m1_filtered_aix_record_dict, m2_filtered_aix_record_dict],
+            'No output message, since there is an output table']
+
+
+def table_title(title_message, csv_content):
+    """
+    Header for output table
+    """
+
+    spaces = ' ' * 10
+    col_sizes = [1 + len(header) for header in spaces]
+    col_sizes[0] = max(col_sizes[0], 1 + 40)
+
+    total_size = 2 + 2 * len(col_sizes) - 1 + sum(col_sizes)
+    print_value('-' * total_size)
+    print_value(title_message, csv_content)
+    print_value('-' * total_size)
+
+
+def print_general_table(m1_copyright_str, m2_copyright_str, m1_input_dims, m2_input_dims, m1_unique_sorted, m2_unique_sorted,
+                        is_aix_enabled, m1_aix_record_present, m2_aix_record_present, m1_total_macs, m2_total_macs,
+                        input_dlc_one, input_dlc_two, csv_content):
+
+    """
+    Top level table that compares input dimensions,
+    number of unique layers between models, and total macs.
+
+    @param m1_copyright_str: copyright applied when creating model1's dlc(if any)
+    @param m2_copyright_str: copyright applied when creating model2's dlc(if any)
+    @param m1_input_dims: Input dimensions of first dlc model
+    @param m2_input_dims: Input dimensions of second dlc model
+    @param m1_unique_sorted: Dictionary of unique layer names for first dlc model
+    @param m2_unique_sorted: Dictionary of unique layer names for second dlc model
+    @param is_aix_enabled: boolean value to indicate whether AIX is enabled in the build
+    @param m1_aix_record_present: boolean string value to indicate whether dlc has Aix records
+    @param m2_aix_record_present: boolean string value to indicate whether dlc has Aix records
+    @param m1_total_macs: Total macs for first dlc model
+    @param m2_total_macs: Total macs for second dlc model
+    @param input_dlc_one: First DLC file name
+    @param input_dlc_two: Second DLC file name
+    """
+
+    # Number of unique layers for each model
+    m1_unique_len = 0
+    m2_unique_len = 0
+    for type, name_list in m1_unique_sorted.items():
+        m1_unique_len += len(name_list)
+    for type, name_list in m2_unique_sorted.items():
+        m2_unique_len += len(name_list)
+
+    m1_copyright = "Present"
+    m2_copyright = "Present"
+    if m1_copyright_str == 'N/A':
+        m1_copyright = "Absent"
+    if m2_copyright_str == 'N/A':
+        m2_copyright = "Absent"
+
+    # Output Table: General Differences
+    sideheader1 = 'Model Copyrights'
+    sideheader2 = 'Input Dimensions'
+    sideheader3 = 'Unique layers (different layer names)'
+    sideheader4 = 'HTA Enabled'
+    sideheader5 = 'Total MACs'
+    spaces = ' ' * max(len(sideheader1), len(sideheader2), len(sideheader3), len(sideheader4), len(sideheader5))
+
+    topheaders = [spaces, input_dlc_one, input_dlc_two]
+    col_sizes = [1 + len(header) for header in topheaders]
+
+    col_sizes[0] = max(col_sizes[0], 1 + 30)
+    col_sizes[1] = max(col_sizes[1], 1 + 30)
+    col_sizes[2] = max(col_sizes[2], 1 + 30)
+
+    total_size = 2 + 2 * len(col_sizes) - 1 + sum(col_sizes)
+
+    print_value('\nNote: Compares input dimensions, number of unique layers, and total macs', csv_content)
+    print_value('-' * total_size)
+    print_row(topheaders, col_sizes, csv_content)
+    print_value('-' * total_size)
+    print_row([sideheader1, m1_copyright, m2_copyright], col_sizes, csv_content)
+    print_row([sideheader2, m1_input_dims, m2_input_dims], col_sizes, csv_content)
+    print_row([sideheader3, m1_unique_len, m2_unique_len], col_sizes, csv_content)
+    # AIX info is optional
+    if is_aix_enabled:
+        print_row([sideheader4, m1_aix_record_present, m2_aix_record_present], col_sizes, csv_content)
+    print_row([sideheader5, get_si_notation(m1_total_macs, m1_total_macs),
+               get_si_notation(m2_total_macs, m2_total_macs)], col_sizes, csv_content)
+    print_value('-' * total_size)
+    print_value('\n', csv_content)
+
+def print_outputs_table(m1_unique_output, m2_unique_output, input_dlc_one, input_dlc_two, csv_content):
+    """
+    Layer output name differences table between dlc models. Prints the common layer as the row with
+    the different output names under the corresponding column header for each model
+
+    NOTE: Assumes the two models have the same layer names
+
+    @param m1_unique_output: Dictionary of unique layer output names for DLC model 1
+    @param m2_unique_output: Dictionary of unique layer output names for DLC model 2
+    @param input_dlc_one: First DLC file name
+    @param input_dlc_two: First DLC file name
+    """
+
+    # Get Side Header as layer name
+    sideheader = list(m1_unique_output.keys())
+
+    # Get max col size based on the topheaders
+    topheaders = ['Id','Layer Name', 'Layer output name: '+input_dlc_one, 'Layer output name: '+input_dlc_two]
+    col_sizes = [1 + len(header) for header in topheaders]
+
+    # find column sizes based on longest columns
+    output1_max = 0
+    output2_max = 0
+    for layer_names, output1_name in m1_unique_output.items():
+        if output1_name[1]:
+            output1_max =  max(output1_max, max(list(map(len, output1_name[1]))))
+    for layer_names, output2_name in m2_unique_output.items():
+        if output2_name[1]:
+            output2_max =  max(output2_max, max(list(map(len, output2_name[1]))))
+
+    col_sizes[0] = max(col_sizes[0], 6)
+    col_sizes[1] = max(max(col_sizes[1], max(list(map(len, m1_unique_output)))), 1 + 40)
+    col_sizes[2] = max(max(col_sizes[2], 1 + output1_max), 1 + 40)
+    col_sizes[3] = max(max(col_sizes[3], 1+ output2_max), 1 + 40)
+
+    total_size = 2 + 2 * len(col_sizes) - 1 + sum(col_sizes)
+
+
+    print_value('\nNote: Displays output name differences between identically named layers', csv_content)
+    print_value('-' * total_size)
+    print_row(topheaders, col_sizes, csv_content)
+    print_value('-' * total_size)
+
+    for layer_name in sideheader:
+        [Id1, m1_output_name] = m1_unique_output.get(layer_name)
+        [Id2, m2_output_name] = m2_unique_output.get(layer_name)
+
+        start = False
+        for name1, name2 in zip(m1_output_name, m2_output_name):
+            if not start:
+                print_row([Id1, layer_name, name1, name2], col_sizes, csv_content)
+                start = True
+            else:
+                print_row(['', '', name1, name2], col_sizes, csv_content)
+        print_value('-'*total_size, csv_content)
+
+
+def print_copyrights_table(m1_copyright_str, m2_copyright_str, input_dlc_one, input_dlc_two, csv_content):
+    """
+    Copyright differences table that display copyright statements for each dlc
+
+    @param m1_copyright_str: copyright applied when creating model1's dlc(if any)
+    @param m2_copyright_str: copyright applied when creating model2's dlc(if any)
+    @param input_dlc_one: First DLC file name
+    @param input_dlc_two: Second DLC file name
+    """
+    # Output Table: Copyright Differences Table
+    top_headers = [input_dlc_one, input_dlc_two]
+    col_sizes = [1 + len(header) for header in top_headers]
+
+    # create list from copyright string by splitting it at every newline
+    m1_copyright = m1_copyright_str.split('\n')
+    m2_copyright = m2_copyright_str.split('\n')
+
+    # find column sizes based on longest row/column pair
+    # initial max column width
+    m1_col_max = 15
+    m2_col_max = 15
+
+    for line in m1_copyright:
+        m1_col_max = max(m1_col_max, len(line))
+    for line in m2_copyright:
+        m2_col_max = max(m2_col_max, len(line))
+
+    col_sizes[0] = max(col_sizes[0], m1_col_max) + 3  # +3 for padding
+    col_sizes[1] = max(col_sizes[1], m2_col_max) + 3  # +3 for padding
+
+    total_size = 2 + 2 * len(col_sizes) - 1 + sum(col_sizes)
+    print_value('-'*total_size, csv_content)
+    print_row(top_headers, col_sizes, csv_content)
+    print_value('-'*total_size, csv_content)
+
+    # get the dlc with longer text
+    max_num_lines = max(len(m1_copyright), len(m2_copyright))
+
+    # print the copyright file contents for each dlc
+    # We loop through the max_num_lines and update the column for each dlc if
+    # it has lines left to print. if no more line, prints empty column
+    for i in range(0, max_num_lines):
+        col_list = ["", ""]  # initialize row as empty
+        if i < len(m1_copyright):
+            col_list[0] = m1_copyright[i].strip()
+        if i < len(m2_copyright):
+            col_list[1] = m2_copyright[i].strip()
+        print_row(col_list, col_sizes, csv_content)
+
+    print_value('-'*total_size, csv_content)
+
+
+def print_layers_table(m1_unique_sorted, m2_unique_sorted, input_dlc_one, input_dlc_two, csv_content):
+    """
+    Layer Differences table that displays the unique layers for each model.
+    Outputs layers that are present in one model, and absent from the other.
+
+    @param m1_unique_sorted: Dictionary of unique layer names for first dlc model
+    @param m2_unique_sorted: Dictionary of unique layer names for second dlc model
+    @param input_dlc_one: First DLC file name
+    @param input_dlc_two: Second DLC file name
+    """
+
+    # Output Table: Layer Differences Table
+    sideheaders1 = list(m1_unique_sorted.keys())
+    sideheaders2 = list(m2_unique_sorted.keys())
+
+    topheaders1 = ['Id', 'Layers unique to Network#1 not present in Network#2 (organized by type)', input_dlc_one, input_dlc_two]
+    topheaders2 = ['Id', 'Layers unique to Network#2 not present in Network#1 (organized by type)', input_dlc_one, input_dlc_two]
+    col_sizes = [1 + len(header) for header in topheaders1]
+
+    # get the max length for the layer type names to determine column size
+    if not m1_unique_sorted:
+        max_layer_type_name = max(list(map(len, m2_unique_sorted)))
+    elif not m2_unique_sorted:
+        max_layer_type_name = max(list(map(len, m1_unique_sorted)))
+    else:
+        max_layer_type_name = max(max(list(map(len, m1_unique_sorted))), max(list(map(len, m2_unique_sorted))))
+
+    # get the max length for the layer names to determine column size
+    max_layer_name = 0
+    if not m1_unique_sorted:
+        for m in m2_unique_sorted.values():
+            max_layer_name = max(max_layer_name, max(len(x[0]) for x in m))
+    elif not m2_unique_sorted:
+        for m in m1_unique_sorted.values():
+            max_layer_name = max(max_layer_name, max(len(x[0]) for x in m))
+    else:
+        for m in m1_unique_sorted.values():
+            max_layer_name = max(max_layer_name, max(len(x[0]) for x in m))
+        for m in m2_unique_sorted.values():
+            max_layer_name = max(max_layer_name, max(len(x[0]) for x in m))
+
+    col_sizes[0] = max(col_sizes[0], 6)
+    col_sizes[1] = max(col_sizes[1], 1 + 6 + max_layer_type_name, 2 + max_layer_name, 1 + 40)
+    col_sizes[2] = max(col_sizes[2], 1 + 40)
+    col_sizes[3] = max(col_sizes[3], 1 + 40)
+
+    total_size = 2 + 2 * len(col_sizes) - 1 + sum(col_sizes)
+    print_value('\nNote: Displays layer differences between models, organized by layer type', csv_content)
+    print_value('-' * total_size)
+    print_row(topheaders1, col_sizes, csv_content)
+    print_value('-' * total_size)
+
+    for type in sideheaders1:
+        print_row(['','type: ' + type, '', ''], col_sizes, csv_content)
+        for name_id_list in m1_unique_sorted.get(type):
+            print_row([name_id_list[1], ('(%s)' % (name_id_list[0])), 'Present', 'Absent'], col_sizes, csv_content)
+        print_value('-' * total_size)
+
+    print_value('-' * total_size)
+    print_row(topheaders2, col_sizes, csv_content)
+    print_value('-' * total_size)
+
+    for type in sideheaders2:
+        print_row(['','type: ' + type, '', ''], col_sizes, csv_content)
+        for name_id_list in m2_unique_sorted.get(type):
+            print_row([name_id_list[1], ('(%s)' % (name_id_list[0])), 'Absent', 'Present'], col_sizes, csv_content)
+        print_value('-' * total_size)
+    print_value('', csv_content)
+
+def supports_color():
+    """
+    Returns True if the running system's terminal supports color, and False
+    otherwise.
+    """
+    plat = sys.platform
+    supported_platform = plat != 'Pocket PC' and (plat != 'win32' or
+                                                  'ANSICON' in os.environ)
+    is_a_tty = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+    if not supported_platform or not is_a_tty:
+        return False
+    return True
+
+def prCyan(skk):
+    """
+    Returns string in cyan color.
+    """
+    colored_skk ="\033[96m{}\033[00m".format(skk)
+    return colored_skk
+
+def prRed(skk):
+    """
+    Returns string in red color.
+    """
+    colored_skk = "\033[91m{}\033[00m" .format(skk)
+    return colored_skk
+
+def print_row_param_table(values, col_sizes, offset, csv_content):
+    """
+    Print rows of paramter table to highlight varying param
+    values in a shared layer with color.
+    """
+    print('|', end=' ')
+    for value, size in zip(values, col_sizes):
+        if(value and value!=values[0] and value!=values[1] and supports_color):
+            value=prCyan(value)
+            size+=offset
+        print('{0:<{1}}|'.format(value, size), end=' ')
+    print()
+    if snpe_dlc_utils.csv_file_flag:
+        csv_content.append(values)
+
+def print_parameters_table(m1_diff_parameters, m2_diff_parameters, input_dlc_one, input_dlc_two, csv_content):
+    """
+    Parameter Differences table that compares parameter values
+    between the two models' shared layers. Outputs layers that
+    exhibit parameter differences, along with their parameter values.
+
+    @param m1_unique_sorted: Dictionary of shared layers with param differences
+                             for first dlc model
+    @param m2_unique_sorted: Dictionary of shared layers with param differences
+                             for second dlc model
+    @param input_dlc_one: First DLC file name
+    @param input_dlc_two: Second DLC file name
+    """
+
+    # Output Table: Parameter Differences Table
+    sideheaders = list(m1_diff_parameters.keys())
+    topheaders = ['Id', 'Identically Named Layers with Parameter Differences', input_dlc_one, input_dlc_two]
+    col_sizes = [1 + len(header) for header in topheaders]
+
+    # find column sizes based on longest columns
+    params1_max = 0
+    params2_max = 0
+    for layer_names, params1 in m1_diff_parameters.items():
+        if params1[0]:
+            params1_max =  max(params1_max, max(list(map(len, params1[0]))))
+    for layer_names, params2 in m2_diff_parameters.items():
+        if params2[0]:
+            params2_max =  max(params2_max, max(list(map(len, params2[0]))))
+
+    col_sizes[0] = max(col_sizes[0], 6)
+    col_sizes[1] = max(max(col_sizes[1], max(list(map(len, m1_diff_parameters)))), 1 + 40)
+    col_sizes[2] = max(max(col_sizes[2], 1 + params1_max), 1 + 40)
+    col_sizes[3] = max(max(col_sizes[3], 1+ params2_max), 1 + 40)
+
+    total_size = 2 + 2 * len(col_sizes) - 1 + sum(col_sizes)
+
+    print_value('\nNote: Displays parameter differences between identically named layers', csv_content)
+    print_value('-' * total_size)
+    print_row(topheaders, col_sizes, csv_content)
+    print_value('-' * total_size)
+
+    for name in sideheaders:
+        m1_params = m1_diff_parameters.get(name)[0]
+        m2_params = m2_diff_parameters.get(name)[0]
+        m1_ids = m1_diff_parameters.get(name)[1]
+        m2_ids = m2_diff_parameters.get(name)[1]
+
+        offset=len(prCyan("hello"))-len("hello")
+        # loop through the first models parameters
+        for m1_param in m1_params:
+            if m1_param in m2_params:
+                # print same parameters
+                print_row([m1_ids, name, m1_param, m1_param], col_sizes, csv_content)
+                m2_params.remove(m1_param)
+                name = '' # only needs to get printed once
+                m1_ids=''; m2_ids=''
+            else:
+                m1_param_key = m1_param.split(":")[0] + ":"
+                if m1_param_key in  '\t'.join(m2_params):
+                    # print modified parameters
+                    index_in_param2 = [m2_params.index(m2_param) for m2_param in m2_params if m1_param_key in m2_param]
+                    print_row_param_table([m2_ids, name, '*' + m1_param, m2_params[index_in_param2[0]]], col_sizes, offset, csv_content)
+                    m2_params.remove(m2_params[index_in_param2[0]])
+                    name = ''
+                    m1_ids=''; m2_ids=''
+                else:
+                    # print new parameters in model1
+                    print_row_param_table([m1_ids, name, '*' + m1_param, ''], col_sizes, offset, csv_content)
+                    name = '';
+                    m1_ids=''; m2_ids=''
+        # print what is left in second model's parameter list
+        for m2_param in m2_params:
+            print_row_param_table([m2_ids, name,'', '*' + m2_param], col_sizes, offset, csv_content)
+
+        print_value('-' * total_size)
+
+    print_value('', csv_content)
+
+def print_dimensions_table(m1_diff_dimensions, m2_diff_dimensions, input_dlc_one, input_dlc_two, csv_content):
+    """
+    Dimension Differences table that compares dimensions
+    between the two models' shared layers. Outputs layers that
+    exhibit dimensions differences, along with their dimension values.
+
+    @param m1_unique_sorted: Dictionary of shared layers with dimensions differences
+                             for first dlc model
+    @param m2_unique_sorted: Dictionary of shared layers with dimensions differences
+                             for second dlc model
+    @param input_dlc_one: First DLC file name
+    @param input_dlc_two: Second DLC file name
+    """
+
+    # Output Table: Dimension Differences Table
+    sideheaders = list(m1_diff_dimensions.keys())
+    topheaders = ['Id', 'Identically Named Layers with Dimension Differences', input_dlc_one, input_dlc_two]
+    col_sizes = [1 + len(header) for header in topheaders]
+
+    # find column sizes based on longest columns
+    dims1_max = 0
+    dims2_max = 0
+    for layer_names, dims1 in m1_diff_dimensions.items():
+        if dims1[0]:
+            dims1_max =  max(dims1_max, max(list(map(len, dims1[0]))))
+    for layer_names, dims2 in m2_diff_dimensions.items():
+        if dims2[0]:
+            dims2_max =  max(dims2_max, max(list(map(len, dims2[0]))))
+
+    col_sizes[0] = max(col_sizes[0], 6)
+    col_sizes[1] = max(max(col_sizes[1], max(list(map(len, m1_diff_dimensions)))), 1 + 40)
+    col_sizes[2] = max(max(col_sizes[2], 1 + dims1_max), 1 + 40)
+    col_sizes[3] = max(max(col_sizes[3], 1+ dims2_max), 1 + 40)
+
+    total_size = 2 + 2 * len(col_sizes) - 1 + sum(col_sizes)
+
+    print_value('\nNote: Displays dimension differences between identically named layers', csv_content)
+    print_value('-' * total_size)
+    print_row(topheaders, col_sizes, csv_content)
+    print_value('-' * total_size)
+
+    for name in sideheaders:
+        m1_dims = m1_diff_dimensions.get(name)[0]
+        m2_dims = m2_diff_dimensions.get(name)[0]
+        layer_id = m1_diff_dimensions.get(name)[1]
+        for m1_dim, m2_dim in zip(m1_dims, m2_dims):
+            m1_dim = 'x'.join(map(str, m1_dim))
+            m2_dim = 'x'.join(map(str, m2_dim))
+            print_row([layer_id, name, m1_dim, m2_dim], col_sizes, csv_content)
+
+        print_value('-' * total_size)
+
+    print_value('', csv_content)
+
+
+def print_weights_table(diff_weights, csv_content):
+    """
+    Weight Differences table that compares weights between
+    corresponding layers of the two models. Outputs layers
+    that exhibit weight differences.
+
+    NOTE: Comparison is only done for models with same architectures
+    i.e. identical layers names/types, and parameters
+
+    @param diff_weights: List of layer names that exhibit weight differences
+                         between the two dlc models
+    """
+
+    # Output Table: Weight Differences Table
+    topheaders = ['Id', 'Identical Layers with Weight Differences']
+    col_sizes = [1 + len(header) for header in topheaders]
+    col_sizes[0] = max(col_sizes[0], 6)
+    col_sizes[1] = max(col_sizes[1], 1 + 40)
+
+    total_size = 2 + 2 * len(col_sizes) - 1 + sum(col_sizes)
+    print_value('\nNote: Displays the layers that have weight differences ' \
+          '(for models with same layer names, types, and parameters)', csv_content)
+    print_value('-' * total_size)
+    print_row(topheaders, col_sizes, csv_content)
+    print_value('-' * total_size)
+
+    for name_id_list in diff_weights:
+        print_row([name_id_list[1],name_id_list[0]], col_sizes, csv_content)
+    print_value('-' * total_size)
+    print_value('', csv_content)
+
+
+def print_aix_param_row(col_list, col_sizes, csv_content):
+    """
+    Prints rows separated by '|' character. If the asterisks character exist
+    in column it will try to print the column in different color, if supported by terminal
+
+    @param col_list: row of columns to print
+    @param col_sizes: size for each column
+    """
+
+    terminal_color_support = supports_color()
+    local_col_size = []  # separate local variable so that we dont modify outer scope col_sizes
+    if terminal_color_support:
+        offset = len(prCyan("hello"))-len("hello") # need to re-adjust since adding color introduces offset
+        for i in range(0, len(col_list)):
+            if "[96m" in col_list[i]:  # already has cyan color
+                local_col_size.append(col_sizes[i] + offset)
+            elif "*" in col_list[i]:
+                # change color of key to reflect param difference
+                col_list[i] = prCyan(col_list[i])
+                local_col_size.append(col_sizes[i] + offset)
+            else:
+                local_col_size.append(col_sizes[i])
+    else:
+        local_col_size = col_sizes
+
+    print_row(col_list, local_col_size, csv_content)
+
+
+def add_aix_diff_columns(col_list, col_val, current_col_num, current_col_row_num, reference_col_row_num, add_color):
+    """
+        Adds columns for the aix diff table. This helps to align the 2 columns for models.
+        Note: it only supports rows with 3 columns and aligns columns 2 and 3
+        @param col_list: the general list that will be used to print the table rows
+        @param col_val: the current column content
+        @param current_col_num: the current column number.
+        @param current_col_row_num: the number of rows that have been so far added for current column
+        @param reference_col_row_num: the neighbouring column to align too. This helps to decide whether a row has
+                                      already been created for that column
+        @param add_color: boolean to determine if value is unique in model and must be colored to visually show
+                         difference. True if must be colored, False otherwise
+    """
+    if add_color:
+        col_val = prCyan(col_val)
+    # only add a new row if current column doesnt have empty rows
+    if current_col_row_num >= reference_col_row_num:
+        if current_col_num == 1:
+            col_list.append(["", col_val, ""])
+        elif current_col_num == 2:
+            col_list.append(["", "", col_val])
+    else:
+        col_list[current_col_row_num][current_col_num] = col_val
+    current_col_row_num += 1
+
+    return current_col_row_num
+
+
+def print_aix_table(aix_record_keys, m1_aix_record_dict, m2_aix_record_dict, input_dlc_one, input_dlc_two,
+                    aix_error_messages, csv_content):
+    """
+    HTA Differences table that displays HTA record and meta information differences
+    between the two models.
+
+    @param aix_record_keys: List of the union of record names between the two models
+    @param m1_aix_record_dict: Dictionary of unique records in model1
+    @param m2_aix_record_dict: Dictionary of unique records in model2
+    @param input_dlc_one: First DLC file name
+    @param input_dlc_two: Second DLC file name
+    @param aix_error_messages: dictionary with key as dlc file name and value is the error message when querying the dlc
+    """
+
+    # Output Table: Aix Records Differences Table
+    top_headers = ['HTA Records with differences', input_dlc_one, input_dlc_two]
+    col_sizes = [1 + len(header) for header in top_headers]
+
+    # find column sizes based on longest row/column pair
+    # initial min column width
+    record_key_col_max = 0
+    m1_col_max = 0
+    m2_col_max = 0
+    for record_name in aix_record_keys:
+        record_key_col_max = max(record_key_col_max, len(record_name))
+    for record_name, meta_info in m1_aix_record_dict.items():
+        m1_col_max = max(m1_col_max, len(max(map(str, meta_info.values()), key=len)))
+    for record_name, meta_info in m2_aix_record_dict.items():
+        m2_col_max = max(m2_col_max, len(max(map(str, meta_info.items()), key=len)))
+
+    # 70 for upper limit to column characters per line
+    max_col_size = 70
+    m1_col_max = min(max_col_size, m1_col_max)
+    m2_col_max = min(max_col_size, m2_col_max)
+
+    col_sizes[0] = max(col_sizes[0], record_key_col_max)
+    col_sizes[1] = max(col_sizes[1], m1_col_max)
+    col_sizes[2] = max(col_sizes[2], m2_col_max)
+
+    total_size = 2 + 2 * len(col_sizes) - 1 + sum(col_sizes)
+    print_value('-'*total_size)
+    print_row(top_headers, col_sizes, csv_content)
+    print_value('-'*total_size)
+
+    # column initial values. This helps to determine if the record is not present in the model
+    # or if there was an error loading the model's aix records
+    m1_col_initial_val = "Not Present"
+    m2_col_initial_val = "Not Present"
+    # assign columns as Query Errors if error due to reasons other than aix compatibility
+    if input_dlc_one in aix_error_messages.keys() and "aix_compatibility" not in aix_error_messages[input_dlc_one].values():
+        m1_col_initial_val = "HTA Query Error"
+    if input_dlc_two in aix_error_messages.keys() and "aix_compatibility" not in aix_error_messages[input_dlc_two].values():
+        m2_col_initial_val = "HTA Query Error"
+
+    for record_key in aix_record_keys:
+        m1_aix_meta_dict = {}
+        m2_aix_meta_dict = {}
+
+        # first print aix record name and whether if present in models
+        col_list = [record_key, m1_col_initial_val, m2_col_initial_val]
+        if record_key in m1_aix_record_dict:
+            col_list[1] = "Params:"
+            m1_aix_meta_dict = m1_aix_record_dict[record_key]
+        if record_key in m2_aix_record_dict:
+            col_list[2] = "Params:"
+            m2_aix_meta_dict = m2_aix_record_dict[record_key]
+        print_row(col_list, col_sizes, csv_content)
+
+        # next print the parameter details for aix records for each model
+        m1_m2_aix_meta_keys = list(set().union(m1_aix_meta_dict.keys(), m2_aix_meta_dict.keys()))
+
+        col_list = []
+        # to keep track of rows for each column
+        m1_col_row = 0
+        m2_col_row = 0
+        add_color = False
+        for aix_key in m1_m2_aix_meta_keys:
+            if aix_key in m1_aix_meta_dict:
+                if "*" in aix_key:
+                    add_color = True  # if the key/value pair is marked as unique, color key and all the values as well
+                col_val = m1_aix_meta_dict[aix_key]
+                # if sub-dict present print on separate row for better visual
+                # note: only supports 1 level deep
+                if isinstance(col_val, dict):
+                    m1_col_row = add_aix_diff_columns(col_list, "  " + aix_key + ":", 1, m1_col_row, m2_col_row, add_color)
+
+                    for meta_key, meta_values in m1_aix_meta_dict[aix_key].items():
+                        # again if list present in value print on separate row for better visual
+                        # note: added to support printing buffer input/output on separate lines
+                        if not isinstance(meta_values, list):
+                            m1_col_row = add_aix_diff_columns(col_list, "    " + meta_key + ":" + str(meta_values), 1, m1_col_row, m2_col_row, add_color)
+                        else:
+                            m1_col_row = add_aix_diff_columns(col_list, "    " + meta_key + ":", 1, m1_col_row, m2_col_row, add_color)
+                            for v in meta_values:
+                                m1_col_row = add_aix_diff_columns(col_list, "      " + v, 1, m1_col_row, m2_col_row, add_color)
+                else:
+                    m1_col_row = add_aix_diff_columns(col_list, "  " + aix_key + ":" + str(col_val), 1, m1_col_row, m2_col_row, add_color)
+                add_color = False  # reset coloring for next key
+            if aix_key in m2_aix_meta_dict:
+                if "*" in aix_key:
+                    add_color = True
+                col_val = m2_aix_meta_dict[aix_key]
+                if isinstance(col_val, dict):
+                    m2_col_row = add_aix_diff_columns(col_list, "  " + aix_key + ":", 2, m2_col_row, m1_col_row, add_color)
+
+                    for meta_key, meta_values in m2_aix_meta_dict[aix_key].items():
+                        if not isinstance(meta_values, list):
+                            m2_col_row = add_aix_diff_columns(col_list, "    " + meta_key + ":" + str(meta_values),2, m2_col_row, m1_col_row, add_color)
+                        else:
+                            m2_col_row = add_aix_diff_columns(col_list, "    " + meta_key + ":", 2, m2_col_row, m1_col_row, add_color)
+                            for v in meta_values:
+                                m2_col_row = add_aix_diff_columns(col_list, "      " + v, 2, m2_col_row, m1_col_row, add_color)
+                else:
+                    m2_col_row = add_aix_diff_columns(col_list, "  " + aix_key + ":" + str(col_val), 2, m2_col_row, m1_col_row, add_color)
+                add_color = False
+        for cols in col_list:
+            print_aix_param_row(cols, col_sizes, csv_content)
+        print_value('-' * total_size)
+
+    print_value('', csv_content)
+
+
+class AixCompatibilityException(Exception):
+    pass
+
+def check_incompatible_aix_records(aix_records):
+    warning_msgs = ""
+    for aix_record_name, aix_meta_info in aix_records.items():
+        if not aix_meta_info['compatibility']:
+            warning_msgs += "- Record " + aix_record_name + " is incompatible with the latest version of SNPE\n"
+    if len(warning_msgs):
+        raise AixCompatibilityException(warning_msgs)
+
+
+def display_dlc_differences(m1, m2, csv_content, args):
+    """
+    Captures the "difference" results from model comparison functions above.
+
+    Based on these results and command line arguments provided by the user,
+    outputs informative messages or "difference" tables.
+
+    Determines which help messages to provide the user
+    (e.g. See --parameters for more details)
+
+    @param m1: First DLC model
+    @param m2: Second DLC model
+    @param args: arguments from the user
+    """
+    dlc_compare_criteria = []  # List to hold all criteria for comparing the DLCs
+
+    # Retrieve base names of DLC files
+    dlc_one_base = os.path.splitext(os.path.basename(args.input_dlc_one))[0]
+    dlc_two_base = os.path.splitext(os.path.basename(args.input_dlc_two))[0]
+
+    # Input dimensions for Models 1 and 2
+    m1_input_dims = m1.get_input_dims()
+    m2_input_dims = m2.get_input_dims()
+
+    # Total MACs for Models 1 and 2
+    m1_total_macs = m1.get_total_macs()
+    m2_total_macs = m2.get_total_macs()
+
+    # get copyright infos
+    m1_copyright_str = m1.get_model_copyright()
+    m2_copyright_str = m2.get_model_copyright()
+    copyrights_same = False
+    if m1_copyright_str == m2_copyright_str:
+        copyrights_same = True
+    dlc_compare_criteria.append (copyrights_same)
+
+    ### Capture layer, parameter and dimension information ###
+
+    layer_comparison_result = compare_layers_by_name(m1, m2)
+    parameter_comparison_result = compare_layers_by_parameters(m1, m2)
+    dimension_comparison_result = compare_layers_by_dimensions(m1, m2)
+
+    # Truth value that represents how Models 1 and 2 are related (True if they are the same)
+    layers_same = layer_comparison_result[0]
+    dlc_compare_criteria.append (layers_same)
+
+    parameters_same = parameter_comparison_result[0]
+    dlc_compare_criteria.append (parameters_same)
+
+    dimensions_same = dimension_comparison_result[0]
+    dlc_compare_criteria.append (dimensions_same)
+
+    # Dictionary of layers that exhibit differences between Models 1 and 2
+    [m1_unique_sorted, m2_unique_sorted] = layer_comparison_result[1]
+    [m1_diff_parameters, m2_diff_parameters] = parameter_comparison_result[1]
+    [m1_diff_dimensions, m2_diff_dimensions] = dimension_comparison_result[1]
+
+    # Info message from comparison
+    layers_message = layer_comparison_result[2]
+    parameters_message = parameter_comparison_result[2]
+    dimensions_message = dimension_comparison_result[2]
+    # Total number of shared layers
+    param_shared_layers=parameter_comparison_result[3]
+    # Total layers with param differences
+    param_diff_layers=len(list(m1_diff_parameters.keys()))
+    if param_diff_layers==0: param_diff_layers='none'
+    if param_diff_layers==param_shared_layers: param_diff_layers='all'
+    # Total number of shared layers
+    dim_shared_layers=dimension_comparison_result[3]
+    # Total layers with dim differences
+    dim_diff_layers=len(list(m1_diff_dimensions.keys()))
+    if dim_diff_layers==0: dim_diff_layers='none'
+    if dim_diff_layers==dim_shared_layers: dim_diff_layers='all'
+
+    ### Capture weight information ###
+    # Return from weight comparison. If layers are not identical, weight comparison is not calculated.
+    if layers_same:
+        weight_comparison_result = compare_layers_by_weights(m1,m2)
+    else:
+        weight_comparison_result = [None, None, None]
+
+    # Truth value that represents how Models 1 and 2 are related (True if weights are the same)
+    weights_same = weight_comparison_result[0]
+
+    # List of layers that exhibit weight differences between Models 1 and 2
+    diff_weights = weight_comparison_result[1]
+    if (diff_weights is not None):
+        # Total layers with weights differences
+        weight_diff_layers=len(diff_weights)
+        if weight_diff_layers==0: weight_diff_layers='none'
+        if weight_diff_layers==dim_shared_layers: weight_diff_layers='all'
+    else:
+        weight_diff_layers=None
+
+    # Info message from weight comparison
+    weights_message = weight_comparison_result[2]
+
+    ### Capture Output Name Between Models (if selected) ###
+    if layers_same:
+        output_name_comparison_results=compare_outputs_by_name(m1,m2)
+    else:
+        output_name_comparison_results=[None, None, None]
+
+    # Truth value that represents if between layer outputs are same
+    output_names_same = output_name_comparison_results[0]
+
+    # Dictionary of different output names
+    if output_name_comparison_results[1] is not None:
+        [m1_unique_output, m2_unique_output] = output_name_comparison_results[1]
+
+    # Info message from output name comparison
+    output_names_message = output_name_comparison_results[2]
+
+    dlc_compare_criteria.append(output_names_same)
+
+    ### Capture Aix Record information ###
+    m1_aix_records = {}
+    m2_aix_records = {}
+    is_aix_enabled = m1.is_aix_enabled() # the actual model doesn't matter as both are compiled with the same DnnModel object
+    m1_aix_record_present = "False"
+    m2_aix_record_present = "False"
+
+    if is_aix_enabled:
+
+        # Check if models have aix enabled
+        if m1.is_aix_record_present():
+            m1_aix_record_present = "True"
+        if m2.is_aix_record_present():
+            m2_aix_record_present = "True"
+
+        # check if models have same aix records
+        aix_error_messages = {}
+        try:
+            m1_aix_records = m1.get_aix_records()
+            check_incompatible_aix_records(m1_aix_records)
+        except AixCompatibilityException as e:
+            aix_error_messages.update({dlc_one_base:
+                                      {"msg": "***Error: Querying HTA Records for model: " + m1.model_filename + ":\n" + e.message,
+                                       "err_type": "aix_compatibility"}})
+        except Exception as e:
+            aix_error_messages.update({dlc_one_base:
+                                       {"msg": "***Error: Querying HTA Records for model: " + m1.model_filename + ":\n" + e.message,
+                                        "err_type": "other"}})
+        try:
+            m2_aix_records = m2.get_aix_records()
+            check_incompatible_aix_records(m2_aix_records)
+        except AixCompatibilityException as e:
+            aix_error_messages.update({dlc_two_base:
+                                      {"msg": "***Error: Querying HTA Records for model: " + m2.model_filename + ":\n" + e.message,
+                                       "err_type": "aix_compatibility"}})
+        except Exception as e:
+            aix_error_messages.update({dlc_two_base:
+                                      {"msg": "***Error: Querying HTA Records for model: " + m2.model_filename + "\n" + e.message,
+                                       "err_type": "other"}})
+
+        aix_comparison_result = compare_models_aix_records(m1_aix_records, m2_aix_records)
+        aix_records_same = aix_comparison_result[0]
+        dlc_compare_criteria.append (aix_records_same)
+        aix_record_keys, m1_aix_record_dict, m2_aix_record_dict = aix_comparison_result[1]
+        aix_records_message = aix_comparison_result[2]
+
+    # Check if weights, params and AIP record contents are identical. If so, DLCs are the same.
+    if all(dlc_compare_criteria):
+        print_value("Note: DLCs are the same", csv_content)
+    else:
+        table_title('General Table', csv_content)
+        print_general_table(m1_copyright_str, m2_copyright_str, m1_input_dims, m2_input_dims, m1_unique_sorted, m2_unique_sorted,
+                            is_aix_enabled, m1_aix_record_present, m2_aix_record_present, m1_total_macs, m2_total_macs,
+                            dlc_one_base, dlc_two_base, csv_content)
+
+        if args.copyrights:
+            table_title('Models Copyright Differences', csv_content)
+            if copyrights_same is False:
+                print_copyrights_table(m1_copyright_str, m2_copyright_str, dlc_one_base, dlc_two_base, csv_content)
+            else:
+                print_value("No Differences found in dlcs copyright statements.\n", csv_content)
+
+        if args.layers:
+            table_title('Layer Differences', csv_content)
+            # Check if models have unique layers
+            if layers_same is False:
+                print_layers_table(m1_unique_sorted, m2_unique_sorted, dlc_one_base, dlc_two_base, csv_content)
+            else:
+                print_value(layers_message, csv_content)
+
+        if args.parameters:
+            table_title('Parameter Differences', csv_content)
+            if param_shared_layers:
+                print_value("Out of " + str(param_shared_layers) + " shared layers, " + str(param_diff_layers) + " exhibit parameter differences", csv_content)
+            # Check if shared layers have parameter differences
+            if parameters_same is False:
+                print_parameters_table(m1_diff_parameters, m2_diff_parameters, dlc_one_base, dlc_two_base, csv_content)
+            else:
+                print_value(parameters_message, csv_content)
+            # Reset boolean value to None to prevent 'see parameters' help message
+            layers_same = None
+
+        if args.dimensions:
+            table_title('Dimension Differences', csv_content)
+            if dim_shared_layers:
+                print_value("Out of " + str(dim_shared_layers) + " shared layers, " + str(dim_diff_layers) + " exhibit dimension differences", csv_content)
+
+            # Check if shared layers have dimension differences
+            if dimensions_same is False:
+                print_dimensions_table(m1_diff_dimensions, m2_diff_dimensions, dlc_one_base, dlc_two_base, csv_content)
+            else:
+                print_value(dimensions_message, csv_content)
+            # Reset boolean value to None to prevent 'see dimensions' help message
+            layers_same = None
+
+        if args.weights:
+            table_title('Weight Differences', csv_content)
+            # Check if corresponding layers have weight differences
+            if weights_same is False:
+                print_weights_table(diff_weights, csv_content)
+            elif weights_same is True:
+                print_value(weights_message, csv_content)
+            else:
+                print_value('\nWarning:: Model 1 and Model 2 have different architectures. Weights are not comparable.\n', csv_content)
+            # Reset boolean values to None to prevent 'see weights' help message
+            layers_same = None
+            weights_same = None
+            dimensions_same = None
+            parameters_same = None
+            output_names_same = None
+
+        if args.outputs:
+            table_title('Layer Output Name Differences', csv_content)
+            # Check if corresponding layers output names are different
+            if output_names_same is False:
+                print_outputs_table(m1_unique_output, m2_unique_output, dlc_one_base, dlc_two_base, csv_content)
+            elif output_names_same is True:
+                print_value(output_names_message, csv_content)
+            else:
+                print_value('\nWarning:: Model 1 and Model 2 have different architectures. Output names are not comparable.\n',csv_content)
+
+        if m1.is_aix_enabled():
+            if args.hta or args.aix:
+                table_title('HTA Differences', csv_content)
+                if aix_records_same is False:
+                    print_aix_table(aix_record_keys, m1_aix_record_dict, m2_aix_record_dict, dlc_one_base, dlc_two_base,
+                                    aix_error_messages, csv_content)
+                elif not aix_error_messages:
+                    # only print if no errors found. Since querying errors will lead to
+                    # 2 models having same Aix records or no records in both
+                    print_value(aix_records_message, csv_content)
+
+                # print error message with loading aix records, if any
+                for err_dict in aix_error_messages.values():
+                    print_value(prRed(err_dict['msg']), csv_content)
+                print('\n')
+
+        # Outputs a help message for user based on boolean values from comparison functions
+        if not args.copyrights:
+            if copyrights_same is False:
+                print(prRed('Info: Copyrights differences found. See --copyrights for more details')+'\n')
+        if not args.layers:
+            if layers_same is False:
+                print_value(prRed('Info: Layer differences found. See --layers for more details')+'\n', csv_content)
+        if not args.parameters:
+            if parameters_same is False:
+                print_value(prRed('Info: Parameter differences found. See --parameters for more details')+'\n', csv_content)
+        if not args.dimensions:
+            if dimensions_same is False:
+                print_value(prRed('Info: Dimension differences found. See --dimensions for more details')+'\n', csv_content)
+        if not args.weights:
+            if weights_same is False:
+                print_value(prRed('Info: Weight differences found. See --weights for more details')+'\n', csv_content)
+        if not args.outputs:
+            if output_names_same is False:
+                print_value(prRed('Info: Output name differences found. See --outputs for more details')+'\n', csv_content)
+
+        if m1.is_aix_enabled():
+            if not args.hta and not args.aix:
+                if aix_error_messages:
+                    print_value(prRed('Error: Querying HTA records returned error. See --hta/--aix for more details')+'\n', csv_content)
+                elif aix_records_same is False:
+                    print_value(prRed('Info: HTA records differences found. See --hta/--aix for more details')+'\n', csv_content)
+        pass
+
+
+def main():
+    try:
+        m1 = snpe_dlc_utils.ModelInfo()
+        m2 = snpe_dlc_utils.ModelInfo()
+        parser = argparse.ArgumentParser()
+        required = parser.add_argument_group('required arguments')
+        required.add_argument('-i1', '--input_dlc_one', required=True, type=str, help="path to the first"
+                                                                                      " dl container archive")
+        required.add_argument('-i2', '--input_dlc_two', required=True, type=str, help="path to the second"
+                                                                                      " dl container archive")
+        parser.add_argument("-c", "--copyrights", action="store_true", help="compare copyrights between models")
+        parser.add_argument("-l", "--layers", action="store_true", help="compare unique layers between models")
+        parser.add_argument("-p", "--parameters", action="store_true", help="compare parameter differences "
+                                                                            "between identically named layers")
+        parser.add_argument("-d", "--dimensions", action="store_true", help="compare dimension differences "
+                                                                            "between identically named layers")
+        parser.add_argument("-w", "--weights", action="store_true", help="compare layer-by-layer weight differences"
+                                                                         " between models (with same architecture)")
+        parser.add_argument("-o", "--outputs", action="store_true", help="compare differences in layer"
+                                                                         " outputs between models")
+
+        if m1.is_aix_enabled(): # the actual model doesn't matter as both are compiled with the same DnnModel object
+            parser.add_argument("-a", "--aix", action="store_true", help="compare HTA records differences in Models "
+                                                                     "(deprecated, use option -x/--hta)")
+            parser.add_argument("-x", "--hta", action="store_true", help="compare HTA records differences in Models")
+        parser.add_argument("-s", "--save", type=str, help="Save the output to a csv file. Specify a target file path.", required=False)
+        args = parser.parse_args()
+
+        csv_content = []
+        if args.save is not None:
+            snpe_dlc_utils.csv_file_flag = True
+
+        snpe_dlc_utils.setUpLogger(True)
+
+        logger = logging.getLogger()
+        if not os.path.exists(args.input_dlc_one):
+            logger.debug("Cannot find archive DLC file " + args.input_dlc_one)
+            sys.exit(-1)
+        if not os.path.exists(args.input_dlc_two):
+            logger.debug("Cannot find archive DLC file " + args.input_dlc_two)
+            sys.exit(-1)
+
+        # Loads input dlc files and extracts model information layer by layer
+        m1.extract_model_info(args.input_dlc_one)
+        m2.extract_model_info(args.input_dlc_two)
+
+        display_dlc_differences(m1, m2, csv_content, args)
+
+        if args.save is not None:
+            try:
+                with open(args.save, 'w') as csv_file:
+                    writer = csv.writer(csv_file)
+                    for d in csv_content:
+                        writer.writerow(d)
+
+            except IOError:
+                print("IOError: Cannot open CSV file " + args.save, file=sys.stderr)
+                sys.exit(-1)
+
+    except Exception as e:
+        print(e)
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,4 @@
+28x28x1_raw/Ex0.raw
+28x28x1_raw/Ex3.raw
+28x28x1_raw/Ex5.raw
+28x28x1_raw/Ex9.raw

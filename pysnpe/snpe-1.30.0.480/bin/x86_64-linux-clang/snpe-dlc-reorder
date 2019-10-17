@@ -1,0 +1,127 @@
+#!/usr/bin/env python
+# -*- mode: python -*-
+# =============================================================================
+#
+#  Copyright (c) 2019 Qualcomm Technologies, Inc.
+#  All Rights Reserved.
+#  Confidential and Proprietary - Qualcomm Technologies, Inc.
+#
+# =============================================================================
+from __future__ import print_function
+import logging
+import argparse
+import os
+import sys
+import traceback
+
+try:
+    from snpe.dlc_utils import snpe_dlc_utils
+except ImportError as ie:
+    print("Failed to find necessary package:")
+    print(str(ie))
+    print("Please ensure that $SNPE_ROOT/lib/python is in your PYTHONPATH")
+    sys.exit(1)
+
+try:
+    from snpe.dlc_utils import modeltools
+except ImportError as ie:
+    print("Failed to find necessary package:")
+    print(str(ie))
+    print("Please ensure that $SNPE_ROOT/lib/python is in your PYTHONPATH")
+    sys.exit(1)
+
+
+class LayerReorder(object):
+    def __init__(self, input_file_name, order_type):
+        self.order_type = order_type
+        self.model = modeltools.Model()
+        self.model.load(input_file_name)
+        self.layers = self.model.get_layers()
+
+    def generate_example(self, generate_filename):
+        print('Dumping layer '+self.order_type+'s'+' to '+generate_filename)
+        f= open(generate_filename, "w")
+        if self.order_type == 'id':
+           for layer in self.layers:
+               f.write(str(layer['id'])+'\n')
+        else:
+           for layer in self.layers:
+               f.write(layer['name']+'\n')
+        f.close()
+
+    def reorder(self, reorder_list, output_file_name):
+        print("Reordering from "+reorder_list)
+
+        with open(reorder_list) as f:
+            layer_order = f.read().splitlines()
+
+        self.model.reorder_layers(layer_order, self.order_type)
+        print("Saving reordered DLC: "+output_file_name)
+        self.model.save(output_file_name)
+
+
+def main():
+    try:
+        parser = argparse.ArgumentParser(description="""A tool for reordering DLC layers. Useful for optimizing HTA partitions or reducing hops between runtimes when layers are unsupported.
+General usage:
+1. snpe-dlc-reorder -i input.dlc -g input_order.txt
+2. User modifies resulting input_order.txt file to desired layer ordering and saves desired_order.txt
+3. snpe-dlc-reorder -i input.dlc -r desired_order.txt
+4. Resulting input_reordered.dlc can then be used.""", formatter_class=argparse.RawTextHelpFormatter)
+        parser._action_groups.pop()
+        required = parser.add_argument_group('required arguments')
+        required.add_argument('-i', '--input_dlc', required=True, type=str, help="path to a DLC file")
+
+        optional = parser.add_argument_group('optional arguments')
+
+        optional.add_argument('-o', '--output_dlc', type=str, required=False,
+                              help="The path and name of the new output dlc. Only used when actually reordering.")
+        optional.add_argument('-g', '--generate_order', type=str, required=False,
+                              help="The path and name of a file in which to generate a list of the current layer ids or names based on the value of the 'order_type' option.\n"
+                                   "This file can be used to then reorder layers.")
+        optional.add_argument('-r', '--reorder_list', type=str, default="", required=False,
+                               help="The list that will be used to reorder the DLC. Must be a text file with either layer names or ids on individual lines.\n"
+                                    "The current ordering of the model can be dumped for ids or names by setting the corresponding 'order_type' option and passing\n"
+                                    "the -g option to generate the current model layer order.")
+        optional.add_argument('-t', '--order_type', type=str, default='name', required=False,
+                              help="The method to use for layer reordering. Options are to reorder by 'id' or by layer 'name'.\n"
+                                   "Default is to reorder by name. When using the 'generate_order' option this will indicate the type of list generated: layer 'id' or 'name'\n"
+                                   "The same order_type should be passed for both generation and reordering.\n"
+                                   "Example usage: snpe-dlc-reorder -i model.dlc -g input_order.txt -t id")
+
+        args = parser.parse_args()
+        snpe_dlc_utils.setUpLogger(True)
+        logger = logging.getLogger()
+
+        if not os.path.exists(args.input_dlc):
+            logger.error("Cannot find archive DLC file " + args.input_dlc)
+            sys.exit(-1)
+
+        output_file_name = args.output_dlc
+        if not output_file_name:
+           dir, filename = os.path.split(os.path.abspath(args.input_dlc))
+           filename = filename.rstrip('.dlc')
+           output_file_name = os.path.join(os.path.dirname(os.path.abspath(args.input_dlc)), filename+'_reordered.dlc')
+
+        if args.order_type not in ['id', 'name']:
+            logger.error("Invalid order option: " + args.order_type)
+            sys.exit(-1)
+
+        reorder = LayerReorder(args.input_dlc,  args.order_type)
+
+        if args.generate_order:
+           reorder.generate_example(args.generate_order)
+           return
+
+        if not os.path.exists(args.reorder_list):
+           logger.error("Must provide either a valid 'reorder_list' file or 'generate_order' options!")
+           sys.exit(-1)
+
+        reorder.reorder(args.reorder_list, output_file_name)
+
+    except Exception as e:
+        traceback.print_exc()
+        sys.exit(-2)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,21 @@
+{
+    "Artifacts": {
+        "aarch64-linux-gcc4.9": [
+            "snpe-net-run",
+            "libSNPE.so",
+            "libsnpe_adsp.so",
+            "libsnpe_dsp_domains_v2.so",
+            "libsymphony-cpu.so",
+            "libatomic.so.1"
+        ],
+        "x86_64-linux-clang": [
+            "snpe-dlc-info",
+            "snpe-diagview"
+        ],
+        "dsp": [
+            "libsnpe_dsp_skel.so",
+            "libsnpe_dsp_v66_domains_v2_skel.so",
+            "libsnpe_dsp_v65_domains_v2_skel.so"
+        ]
+    }
+}
