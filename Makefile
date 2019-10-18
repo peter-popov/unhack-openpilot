@@ -37,7 +37,7 @@ notebook:
 	  -v $(datadir):/data                    \
 	  -p 8888:8888							 \
 	  -it $(dockerimage)                     \
-	  jupyter notebook --ip=0.0.0.0 --no-browser --allow-root
+	  jupyter notebook --ip=0.0.0.0 --no-browser --allow-root ./nbs
 
 n: notebook
 

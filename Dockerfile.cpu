@@ -6,7 +6,7 @@ ENV LANG="C.UTF-8" LC_ALL="C.UTF-8" PATH="/opt/venv/bin:$PATH" PIP_NO_CACHE_DIR=
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv libglib2.0-0 python python-pip libpython2.7-dev libatomic1 \
-    libboost-python-dev build-essential
+    libboost-python-dev libboost-numpy-dev build-essential
     #&& \
     #rm -rf /var/lib/apt/lists/*
 
@@ -32,3 +32,4 @@ COPY pysnpe /pysnpe
 RUN cd /pysnpe && make
 
 ENV PYTHONPATH="PYTHONPATH:/pysnpe/obj/"
+ENV LD_LIBRARY_PATH="/pysnpe/snpe-1.30.0.480/lib/x86_64-linux-clang"

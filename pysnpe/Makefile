@@ -18,7 +18,7 @@ LDFLAGS  += -shared -L $(SNPE_ROOT)/lib/x86_64-linux-clang
 
 # Specify the link libraries
 LLIBS    += -lSNPE
-LLIBS    += -lboost_python3
+LLIBS    += -lboost_python3 -lboost_numpy3
 LLIBS    += $(SNPE_ROOT)/lib/x86_64-linux-clang/libsymphony-cpu.so
 
 

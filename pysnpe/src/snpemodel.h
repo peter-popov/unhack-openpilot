@@ -20,6 +20,9 @@ public:
   }
   void execute(float *net_input_buf);
 
+  void addRecurrent(float *state, int state_size);
+  void addDesire(float *state, int state_size);
+  
 private:
   uint8_t *model_data = NULL;
 
@@ -34,6 +37,10 @@ private:
   zdl::DlSystem::UserBufferMap outputMap;
   std::unique_ptr<zdl::DlSystem::IUserBuffer> outputBuffer;
   float *output;
+
+  std::unique_ptr<zdl::DlSystem::IUserBuffer> addExtra(float *state, int state_size, int idx);
+  std::unique_ptr<zdl::DlSystem::IUserBuffer> recurrentBuffer;
+  std::unique_ptr<zdl::DlSystem::IUserBuffer> desireBuffer;
 };
 
 #endif
