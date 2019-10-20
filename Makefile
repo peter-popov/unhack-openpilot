@@ -18,7 +18,7 @@ requirements.txt: requirements.in
 	docker run --volume $(CURDIR):/usr/src/app --rm img_sandbox pip-compile --generate-hashes
 	touch requirements.txt
 
-run:
+run: install
 	@docker run                              \
 	  --ipc=host                             \
 	  --rm                                   \
@@ -29,7 +29,7 @@ run:
 
 r: run
 
-notebook:
+notebook: install
 	@docker run                              \
 	  --ipc=host                             \
 	  --rm                                   \
@@ -37,7 +37,7 @@ notebook:
 	  -v $(datadir):/data                    \
 	  -p 8888:8888							 \
 	  -it $(dockerimage)                     \
-	  jupyter notebook --ip=0.0.0.0 --no-browser --allow-root ./nbs
+	  jupyter notebook --ip=0.0.0.0 --no-browser --allow-root
 
 n: notebook
 

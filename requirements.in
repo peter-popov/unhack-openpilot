@@ -5,3 +5,6 @@ pillow
 tqdm
 jupyter
 matplotlib
+scipy
+seaborn
+ipykernel
