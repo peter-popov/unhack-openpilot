@@ -35,7 +35,7 @@ I have written a simple python wrapper around the SNPE model SDK so that I can u
 
 ## DL Model
 
-It looks very custom made. Open [html file](https://github.com/peter-popov/unhack-openpilot/blob/master/driving_model.html) for more details.
+It looks very custom made. Open [html file](https://htmlpreview.github.io/?https://github.com/peter-popov/unhack-openpilot/blob/master/driving_model.html) for more details.
 
 ### Model layers
 
