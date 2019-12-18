@@ -35,18 +35,17 @@ I have written a simple python wrapper around the SNPE model SDK so that I can u
 
 ## DL Model
 
-It looks very custom made. Open [html file](driving-model.html) for more details.
+It looks very custom made. Open [html file](https://github.com/peter-popov/unhack-openpilot/blob/master/driving_model.html) for more details.
 
 ### Model layers
 
 Some kind of resnet/inception for the encoder with 1 dense layer on top produces 1x512 feature vector.
 
-The last concatenated with 1x8 desire vector. Not sure what it is, they always pass NULL at the moment. My guess it’s related to the route planner, e.g. telling model where you want to go 🛣️ 
+The last concatenated with 1x8 desire vector. Not sure what it is, they always pass NULL at the moment. My guess it’s related to the route planner, e.g. telling model where you want to go 🛣️.
 
 That extended 1x520 feature vector goes into LSTM (it’s optional but enabled in the code at the moment).
 
-Output of LSTM goes into 4 separate dense 3-layer [MDN](https://mikedusenberry.com/mixture-density-networks)s. The road coordinate system: x→forward, y→left, z→up. They predict prob distribution of lane $$y$$ coordinate, when $$x$$ goes from 1 to 192. 
-
+Output of LSTM goes into 4 separate dense 3-layer [MDN](https://mikedusenberry.com/mixture-density-networks)s. The road coordinate system: x→forward, y→left, z→up. They predict prob distribution of lane $$y$$ coordinate, when $$x$$ goes from 1 to 192.
 
 ### Output vector
 
@@ -69,9 +68,11 @@ I think I managed to receive a resonable result from the model. Expect that path
 
 The lead(last 1x58 output) seems to be a [MDN](https://mikedusenberry.com/mixture-density-networks) of size 5 which estimates the location of the can we are following.
 
-      // Every output distribution from the MDN includes the probabilties
-      // of it representing a current lead car, a lead car in 2s
-      // or a lead car in 4s
+```C++
+// Every output distribution from the MDN includes the probabilties
+// of it representing a current lead car, a lead car in 2s
+// or a lead car in 4s
+```
 
 They use the following structure:
 
@@ -122,7 +123,9 @@ The result is transmitted to the control module as a PathPlan. There is a lot of
 
 ## Run the code
 
-    > make notebook 
+```shell
+    > make notebook
+```
 
 Takes some time to build a docker image
 
